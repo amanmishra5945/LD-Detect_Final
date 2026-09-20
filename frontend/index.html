@@ -70,11 +70,12 @@
           <span>🎙 Accent:</span>
         </label>
         <select class="child-select" id="accentSelect" aria-label="Speech Recognition Accent" style="padding:6px 10px; font-weight:600; border-radius:8px; border:1.5px solid var(--border); background:#fff; cursor:pointer;">
-          <option value="en-IN" selected>🇮🇳 English (India) - en-IN</option>
-          <option value="en-US">🇺🇸 English (US) - en-US</option>
+          <option value="auto">🌐 Auto (Device Default)</option>
+          <option value="en-US" selected>🇺🇸 English (US / General) - en-US</option>
+          <option value="en-IN">🇮🇳 English (India) - en-IN</option>
           <option value="en-GB">🇬🇧 English (UK) - en-GB</option>
         </select>
-        <span class="badge" id="accentModelBadge" style="background:#ecfdf5; color:#047857; font-size:11px; font-weight:700; padding:4px 8px; border-radius:999px; border:1px solid #a7f3d0;">🇮🇳 Indian Acoustic Model</span>
+        <span class="badge" id="accentModelBadge" style="background:#eff6ff; color:#1d4ed8; font-size:11px; font-weight:700; padding:4px 8px; border-radius:999px; border:1px solid #bfdbfe;">🌐 General Acoustic Model</span>
       </div>
 
       <div class="status-indicator" id="apiStatusIndicator">

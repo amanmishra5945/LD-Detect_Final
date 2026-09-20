@@ -33,11 +33,15 @@ let lastSpeechEventTime = null;
 let speechConfidenceAvg = 0.85;
 
 let activeResult = null;
-let currentSpeechAccent = localStorage.getItem("selectedAccent") || "en-IN";
+let currentSpeechAccent = localStorage.getItem("selectedAccent") || "en-US";
 
 function getSelectedAccent() {
   const sel = document.getElementById("accentSelect");
-  return sel ? sel.value : currentSpeechAccent;
+  const val = sel ? sel.value : currentSpeechAccent;
+  if (!val || val === "auto") {
+    return navigator.language || "en-US";
+  }
+  return val;
 }
 
 function setupAccentSelector() {
@@ -57,11 +61,16 @@ function setupAccentSelector() {
       badge.style.background = "#eff6ff";
       badge.style.color = "#1d4ed8";
       badge.style.borderColor = "#bfdbfe";
+    } else if (sel.value === "auto") {
+      badge.textContent = "🌐 Device Default Model";
+      badge.style.background = "#f0fdf4";
+      badge.style.color = "#15803d";
+      badge.style.borderColor = "#bbf7d0";
     } else {
-      badge.textContent = "🇺🇸 US Acoustic Model";
-      badge.style.background = "#fef2f2";
-      badge.style.color = "#b91c1c";
-      badge.style.borderColor = "#fecaca";
+      badge.textContent = "🇺🇸 US / General Model";
+      badge.style.background = "#eff6ff";
+      badge.style.color = "#1d4ed8";
+      badge.style.borderColor = "#bfdbfe";
     }
   };
   updateBadge();
@@ -1204,68 +1213,22 @@ async function finalizeDyslexiaSubmission() {
 
 let liveTimerInterval = null;
 
-async function requestMicrophoneAccess() {
-  // Optional audio visualizer helper — MUST NEVER block or crash speech recognition
-  try {
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      if (!micMediaStream || !micMediaStream.active) {
-        micMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null);
-      }
-      if (micMediaStream) {
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if (AudioCtx && (!audioContext || audioContext.state === "closed")) {
-          audioContext = new AudioCtx();
-        }
-        if (audioContext && audioContext.state === "suspended") {
-          await audioContext.resume().catch(() => {});
-        }
-        if (audioContext && !micAnalyser) {
-          const source = audioContext.createMediaStreamSource(micMediaStream);
-          micAnalyser = audioContext.createAnalyser();
-          micAnalyser.fftSize = 64;
-          source.connect(micAnalyser);
-        }
-        startLiveAudioVisualizer();
-        return true;
-      }
-    }
-  } catch (e) {
-    console.warn("Audio visualizer note:", e);
+function releaseAnyAudioLocks() {
+  if (micMediaStream) {
+    try {
+      micMediaStream.getTracks().forEach(t => t.stop());
+    } catch (e) {}
+    micMediaStream = null;
   }
-  return false;
-}
-
-function startLiveAudioVisualizer() {
-  if (animVolumeFrameId) cancelAnimationFrame(animVolumeFrameId);
-  const dataArray = new Uint8Array(micAnalyser ? micAnalyser.frequencyBinCount : 0);
-
-  function loop() {
-    if (micAnalyser && (isListening || userWantsListening)) {
-      micAnalyser.getByteFrequencyData(dataArray);
-      let sum = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        sum += dataArray[i];
-      }
-      const avg = sum / (dataArray.length || 1);
-      const spans = document.querySelectorAll("#audioWave span");
-      if (spans && spans.length > 0) {
-        spans.forEach((span, idx) => {
-          const factor = Math.min(Math.max((avg / 40) * (0.8 + (idx % 3) * 0.4), 0.25), 2.2);
-          span.style.height = `${Math.round(14 * factor)}px`;
-        });
-      }
-      animVolumeFrameId = requestAnimationFrame(loop);
-    } else {
-      const spans = document.querySelectorAll("#audioWave span");
-      if (spans) {
-        spans.forEach(span => { span.style.height = "6px"; });
-      }
-    }
+  if (audioContext) {
+    try { audioContext.close(); } catch (e) {}
+    audioContext = null;
   }
-  loop();
+  micAnalyser = null;
 }
 
 function setupSpeechRecognitionEngine() {
+  releaseAnyAudioLocks();
   const SpeechClass = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechClass) return;
 
@@ -1275,6 +1238,8 @@ function setupSpeechRecognitionEngine() {
       speechRecognizer.onresult = null;
       speechRecognizer.onerror = null;
       speechRecognizer.onend = null;
+      speechRecognizer.onaudiostart = null;
+      speechRecognizer.onspeechstart = null;
       try { speechRecognizer.abort(); } catch (e) {}
     }
   } catch (e) {}
@@ -1282,7 +1247,7 @@ function setupSpeechRecognitionEngine() {
   speechRecognizer = new SpeechClass();
   speechRecognizer.continuous = true;
   speechRecognizer.interimResults = true;
-  speechRecognizer.lang = getSelectedAccent() || "en-US";
+  speechRecognizer.lang = getSelectedAccent();
   speechRecognizer.maxAlternatives = 3;
 
   speechRecognizer.onstart = () => {
@@ -1312,7 +1277,17 @@ function setupSpeechRecognitionEngine() {
       }
     }, 100);
 
-    updateMicVisualState(true, "● LISTENING NOW! Speak the passage aloud into your microphone");
+    updateMicVisualState(true, "● LISTENING NOW! Speak the sentence aloud into your microphone");
+  };
+
+  speechRecognizer.onaudiostart = () => {
+    const statusText = document.getElementById("micStatusText");
+    if (statusText) statusText.innerHTML = `<span style="color:#2563EB; font-weight:700;">● Microphone active: Speak now…</span>`;
+  };
+
+  speechRecognizer.onspeechstart = () => {
+    const statusText = document.getElementById("micStatusText");
+    if (statusText) statusText.innerHTML = `<span style="color:#15803D; font-weight:700;">● Voice detected: Transcribing…</span>`;
   };
 
   speechRecognizer.onresult = async (event) => {
@@ -1322,28 +1297,30 @@ function setupSpeechRecognitionEngine() {
     }
     lastSpeechEventTime = now;
 
-    let combined = "";
-    let confs = [];
-    for (let i = 0; i < event.results.length; i++) {
-      combined += event.results[i][0].transcript + " ";
-      if (event.results[i].isFinal && Number.isFinite(event.results[i][0].confidence)) {
-        confs.push(event.results[i][0].confidence);
+    let finalTranscript = "";
+    let interimTranscript = "";
+
+    for (let i = 0; i < event.results.length; ++i) {
+      if (event.results[i].isFinal) {
+        finalTranscript += event.results[i][0].transcript + " ";
+      } else {
+        interimTranscript += event.results[i][0].transcript + " ";
       }
     }
 
-    speechTranscriptAccumulated = combined.trim();
-    if (confs.length > 0) {
-      speechConfidenceAvg = confs.reduce((a, b) => a + b, 0) / confs.length;
-    }
+    const currentText = (finalTranscript + interimTranscript).trim();
+    if (currentText) {
+      speechTranscriptAccumulated = currentText;
 
-    // Immediately show heard text right under mic
-    const statusText = document.getElementById("micStatusText");
-    if (statusText) {
-      statusText.innerHTML = `Heard: "<span style="color:#15803D; font-weight:700;">${speechTranscriptAccumulated}</span>"`;
-    }
+      // Immediately show heard text right under mic
+      const statusText = document.getElementById("micStatusText");
+      if (statusText) {
+        statusText.innerHTML = `Heard: "<span style="color:#15803D; font-weight:700;">${currentText}</span>"`;
+      }
 
-    // Real-time backend alignment + live ML prediction call
-    await runSpeechAlignmentUpdate(speechTranscriptAccumulated);
+      // Real-time backend alignment + live ML prediction call
+      await runSpeechAlignmentUpdate(currentText);
+    }
   };
 
   speechRecognizer.onend = () => {
@@ -1355,7 +1332,7 @@ function setupSpeechRecognitionEngine() {
             speechRecognizer.start();
           } catch (e) {}
         }
-      }, 200);
+      }, 150);
       return;
     }
 
@@ -1385,7 +1362,8 @@ function setupSpeechRecognitionEngine() {
     console.warn("Speech recognition error:", e.error);
     if (e.error === "no-speech") {
       if (userWantsListening) {
-        updateMicVisualState(true, "● Listening… Speak into your microphone now");
+        const statusText = document.getElementById("micStatusText");
+        if (statusText) statusText.innerHTML = `<span style="color:#D97706; font-weight:600;">● Listening… Speak louder into your microphone</span>`;
         return;
       }
     }
@@ -1393,19 +1371,19 @@ function setupSpeechRecognitionEngine() {
       userWantsListening = false;
       isListening = false;
       clearInterval(liveTimerInterval);
-      updateMicVisualState(false, "⚠️ Microphone is blocked! Click the lock/camera icon 🔒 in your browser address bar to Allow microphone, then try again.");
+      updateMicVisualState(false, "⚠️ Microphone is blocked! Click the lock icon 🔒 in the browser address bar to Allow microphone.");
       showToast("Microphone blocked: Please click Allow in browser address bar.");
     } else if (e.error === "network") {
       userWantsListening = false;
       isListening = false;
       clearInterval(liveTimerInterval);
-      updateMicVisualState(false, "⚠️ Speech service network error. Note: Brave browser blocks speech by default (enable in Brave Settings > Privacy), or use Chrome/Edge or type words below.");
-      showToast("Speech service error. You can also type spoken words in the box below.");
+      updateMicVisualState(false, "⚠️ Speech recognition network timeout. You can also type spoken words in the box below.");
+      showToast("Speech service error. You can also type words below.");
     } else if (e.error === "audio-capture") {
       userWantsListening = false;
       isListening = false;
       clearInterval(liveTimerInterval);
-      updateMicVisualState(false, "⚠️ No microphone detected or mic is in use by another application.");
+      updateMicVisualState(false, "⚠️ No microphone detected. Please check Windows sound input settings.");
       showToast("No microphone detected. Please check your mic connection.");
     } else {
       updateMicVisualState(false, `Mic: ${e.error}. Click to retry or type below.`);
@@ -1449,9 +1427,6 @@ async function toggleMicrophone(expectedText) {
 
   userWantsListening = true;
   updateMicVisualState(true, "🎙 Starting microphone… please speak clearly");
-
-  // Optional visualizer (never blocks speech recognition)
-  requestMicrophoneAccess().catch(() => {});
 
   startSpeechRecognizer();
 }

@@ -1980,6 +1980,8 @@ function displayResults(res) {
         <span class="prob-val">${Math.round(val * 100)}%</span>
       </div>
     `).join("");
+  }
+
   // Dysgraphia Target Fidelity & Word Match Section
   const fidelityCard = document.getElementById("resDysgraphiaFidelityCard");
   const fidelityBadge = document.getElementById("resFidelitySummaryBadge");

@@ -93,33 +93,37 @@ def detect_loop_orientation(binary_img: np.ndarray, target_letter: str) -> Optio
         return None
 
     crop = binary_img[y:y+h, x:x+w]
-    mid_x = w // 2
-    left_mass = np.sum(crop[:, :mid_x] > 0)
-    right_mass = np.sum(crop[:, mid_x:] > 0)
-    total_mass = left_mass + right_mass
+    h_mid = h // 2
+    w_mid = w // 2
 
-    if total_mass == 0:
-        return None
+    # Top half mass
+    top_left = float(np.sum(crop[:h_mid, :w_mid] > 0))
+    top_right = float(np.sum(crop[:h_mid, w_mid:] > 0))
+    top_total = top_left + top_right
+    top_left_ratio = top_left / (top_total + 1e-5) if top_total > 0 else 0.5
 
-    left_ratio = left_mass / total_mass
-    right_ratio = right_mass / total_mass
+    # Bottom half mass
+    bot_left = float(np.sum(crop[h_mid:, :w_mid] > 0))
+    bot_right = float(np.sum(crop[h_mid:, w_mid:] > 0))
+    bot_total = bot_left + bot_right
+    bot_left_ratio = bot_left / (bot_total + 1e-5) if bot_total > 0 else 0.5
 
     if target == "b":
-        # 'b' should have substantially more mass on the right (where the loop is)
-        if left_ratio > 0.65:
-            return "Possible letter-form mismatch: loop appears on the left (resembling 'd') instead of the right ('b')"
+        # 'b' vertical ascender stem is in upper-left; if stem is on upper-right, it's 'd'
+        if top_left_ratio < 0.45 and top_right > top_left * 1.2:
+            return "Reversal detected: letter was written as 'd' (ascender stem on right) instead of 'b'"
     elif target == "d":
-        # 'd' should have substantially more mass on the left
-        if right_ratio > 0.65:
-            return "Possible letter-form mismatch: loop appears on the right (resembling 'b') instead of the left ('d')"
+        # 'd' vertical ascender stem is in upper-right; if stem is on upper-left, it's 'b'
+        if top_left_ratio > 0.55 and top_left > top_right * 1.2:
+            return "Reversal detected: letter was written as 'b' (ascender stem on left) instead of 'd'"
     elif target == "p":
-        # 'p' should have loop on the top-right
-        if left_ratio > 0.65:
-            return "Possible letter-form mismatch: stroke orientation resembles 'q' instead of 'p'"
+        # 'p' vertical descender stem is in lower-left; if stem is on lower-right, it's 'q'
+        if bot_left_ratio < 0.45 and bot_right > bot_left * 1.2:
+            return "Reversal detected: letter was written as 'q' (descender stem on right) instead of 'p'"
     elif target == "q":
-        # 'q' should have loop on top-left
-        if right_ratio > 0.65:
-            return "Possible letter-form mismatch: stroke orientation resembles 'p' instead of 'q'"
+        # 'q' vertical descender stem is in lower-right; if stem is on lower-left, it's 'p'
+        if bot_left_ratio > 0.55 and bot_left > bot_right * 1.2:
+            return "Reversal detected: letter was written as 'p' (descender stem on left) instead of 'q'"
 
     return None
 
@@ -254,6 +258,162 @@ def extract_stroke_kinematics(
     }
 
 
+def verify_handwritten_target(
+    binary_img: np.ndarray,
+    target_text: str,
+    letter_mismatch_flag: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Rigorously verifies whether the drawn canvas content matches the requested
+    target letter, word, or phrase.
+    """
+    target = (target_text or "").strip()
+    if not target:
+        return {"is_matched": True, "accuracy_pct": 100, "details": "No target specified.", "reasons": []}
+
+    ink_pixels = int(np.sum(binary_img > 0))
+    if ink_pixels < 30:
+        return {
+            "is_matched": False,
+            "accuracy_pct": 0,
+            "detected_chars": 0,
+            "expected_chars": len(target.replace(" ", "")),
+            "reasons": ["Canvas is blank or writing has insufficient ink."]
+        }
+
+    clean_target = target.replace(" ", "")
+    n_expected = len(clean_target)
+
+    # 1. Topological loop / hole inspection
+    HOLE_1 = set("abdeopqADOPQR0469")
+    HOLE_2 = set("B8")
+    exp_holes = sum(2 if ch in HOLE_2 else (1 if ch in HOLE_1 else 0) for ch in clean_target)
+
+    cnts, hier = cv2.findContours(binary_img, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    drawn_holes = 0
+    if hier is not None:
+        for h in hier[0]:
+            if h[3] != -1:  # interior hole
+                drawn_holes += 1
+
+    # 2. Extracted character units (filtered by min area)
+    ext_cnts, _ = cv2.findContours(binary_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    valid_cnts = [c for c in ext_cnts if cv2.contourArea(c) >= 35]
+    n_detected = len(valid_cnts)
+
+    # Character count agreement score
+    if n_expected == 1:
+        if n_detected == 1:
+            count_score = 1.0
+        elif n_detected == 2:
+            count_score = 0.85
+        elif n_detected == 3:
+            count_score = 0.50
+        else:
+            count_score = max(0.10, 1.0 - (n_detected - 1) * 0.25)
+    else:
+        char_diff = abs(n_detected - n_expected)
+        count_score = max(0.0, 1.0 - (char_diff / max(n_expected, 1)))
+
+    # Topological hole agreement score
+    hole_diff = abs(drawn_holes - exp_holes)
+    if exp_holes == 0 and drawn_holes > 1:
+        hole_score = 0.30
+    elif exp_holes > 0 and drawn_holes == 0:
+        hole_score = 0.40
+    else:
+        hole_score = max(0.0, 1.0 - hole_diff * 0.35)
+
+    # 3. Structural template comparison via bilateral distance transform
+    scale = 1.8 if n_expected <= 2 else (1.4 if n_expected <= 6 else 1.0)
+    thick = 3
+    tmpl = np.zeros((120, max(140, n_expected * 55)), dtype=np.uint8)
+    cv2.putText(tmpl, target, (15, 80), cv2.FONT_HERSHEY_SIMPLEX, scale, 255, thick, cv2.LINE_AA)
+
+    def get_crop(img):
+        pts = np.argwhere(img > 0)
+        if len(pts) == 0:
+            return np.zeros((64, 64), dtype=np.uint8)
+        y0, x0 = pts.min(axis=0)
+        y1, x1 = pts.max(axis=0) + 1
+        return img[y0:y1, x0:x1]
+
+    c_drawn = get_crop(binary_img)
+    c_tmpl = get_crop(tmpl)
+
+    h_fixed = 80
+    def norm_h(c):
+        h, w = c.shape
+        nw = max(int(w * (h_fixed / max(h, 1))), 1)
+        return cv2.resize(c, (nw, h_fixed))
+
+    n_d = norm_h(c_drawn)
+    n_t = norm_h(c_tmpl)
+
+    w_ratio = min(n_d.shape[1], n_t.shape[1]) / max(n_d.shape[1], n_t.shape[1])
+
+    max_w = max(n_d.shape[1], n_t.shape[1])
+    def pad_w(img):
+        out = np.zeros((h_fixed, max_w), dtype=np.uint8)
+        dx = (max_w - img.shape[1]) // 2
+        out[:, dx:dx+img.shape[1]] = img
+        return out
+
+    p_d = pad_w(n_d)
+    p_t = pad_w(n_t)
+
+    dist_map_t = cv2.distanceTransform(cv2.bitwise_not(p_t), cv2.DIST_L2, 3)
+    pts_d = p_d > 0
+    d1 = np.mean(dist_map_t[pts_d]) if np.sum(pts_d) > 0 else 50.0
+
+    dist_map_d = cv2.distanceTransform(cv2.bitwise_not(p_d), cv2.DIST_L2, 3)
+    pts_t = p_t > 0
+    d2 = np.mean(dist_map_d[pts_t]) if np.sum(pts_t) > 0 else 50.0
+
+    sym_d = (d1 + d2) / 2.0
+    chamfer_score = float(np.exp(-sym_d / 12.0))
+
+    try:
+        shape_diff = cv2.matchShapes(n_d, n_t, cv2.CONTOURS_MATCH_I1, 0)
+        shape_sim = float(np.exp(-min(shape_diff, 5.0)))
+    except Exception:
+        shape_sim = 0.50
+
+    raw_match = (
+        0.35 * chamfer_score +
+        0.25 * count_score +
+        0.15 * hole_score +
+        0.15 * shape_sim +
+        0.10 * w_ratio
+    )
+
+    has_reversal = bool(letter_mismatch_flag)
+    if has_reversal:
+        raw_match *= 0.50
+
+    accuracy_pct = int(np.clip(round(raw_match * 100), 5, 98))
+    is_matched = (accuracy_pct >= 55) and not has_reversal
+
+    reasons = []
+    if has_reversal:
+        reasons.append(f"Reversal detected: letter was written in reversed orientation.")
+    elif accuracy_pct < 45:
+        reasons.append(f"Drawn shape does not match target '{target}' (illegible formation or incorrect characters).")
+    elif count_score < 0.5:
+        reasons.append(f"Character count mismatch: Expected {n_expected} letters, but detected {n_detected} stroke units.")
+
+    return {
+        "is_matched": is_matched,
+        "accuracy_pct": accuracy_pct,
+        "detected_chars": n_detected,
+        "expected_chars": n_expected,
+        "drawn_holes": drawn_holes,
+        "expected_holes": exp_holes,
+        "has_reversal": has_reversal,
+        "reasons": reasons
+    }
+
+
 def analyze_handwriting_task(
     strokes: List[List[Dict[str, Any]]],
     target_text: str,
@@ -266,11 +426,7 @@ def analyze_handwriting_task(
 ) -> Dict[str, Any]:
     """
     Comprehensive analysis combining Computer Vision (OpenCV) and Stroke Kinematics.
-    Returns:
-      - metrics: stroke and visual feature metrics
-      - visual_similarity: estimated structural match to target
-      - letter_mismatch: flag if letter confusion is observed
-      - observations: parent/teacher explainable observations
+    Rigorously verifies target content match, kinematics, and character formation.
     """
     duration = max(float(total_duration_sec or 0.0), 0.1)
     target = target_text.strip()
@@ -298,28 +454,15 @@ def analyze_handwriting_task(
 
     # 2. Kinematics analysis
     kinematics = extract_stroke_kinematics(strokes, canvas_width, canvas_height, duration)
-
-    # Writing speed in characters per second (CPS)
     writing_speed_cps = round(target_letter_count / duration, 3)
 
-    # Visual similarity estimation
-    # Bounded estimate based on contour structure, ink presence, and expected complexity
-    if ink_pixels < 20 or kinematics["stroke_count"] == 0:
-        visual_similarity = 0.0
-    else:
-        # Expected ink coverage depends on target length
-        expected_coverage = min(0.005 + 0.003 * len(target), 0.08)
-        coverage_factor = min(fill_density / expected_coverage, 1.0)
-        smoothness_factor = kinematics["stroke_smoothness"]
-        
-        # Penalize if mismatch was detected
-        penalty = 0.35 if letter_mismatch_flag else 0.0
-        visual_similarity = round(
-            float(np.clip(0.40 * coverage_factor + 0.60 * smoothness_factor - penalty, 0.10, 0.98)),
-            2
-        )
+    # 3. Rigorous Target Word / Letter Content Verification
+    verification = verify_handwritten_target(thresh, target, letter_mismatch_flag)
+    visual_similarity = round(verification["accuracy_pct"] / 100.0, 2)
 
     observations = []
+    observations.extend(verification.get("reasons", []))
+
     if kinematics["stroke_count"] < 2 and target_letter_count > 1:
         observations.append("Very few strokes recorded for this task.")
     elif kinematics["stroke_smoothness"] >= 0.75:
@@ -339,7 +482,7 @@ def analyze_handwriting_task(
     if correction_count > 0:
         observations.append(f"{correction_count} correction(s)/erasure(s) performed.")
 
-    # 3. HOG+SVM character classification (if trained model is available)
+    # 4. HOG+SVM character classification (if trained model is available)
     char_classification = None
     if is_model_available() and ink_pixels > 20:
         char_classification = classify_canvas_characters(thresh, min_area=30)
@@ -358,13 +501,6 @@ def analyze_handwriting_task(
                 observations.append(
                     f"Vision model detected {corrected}/{total_chars} character(s) "
                     f"with self-correction patterns."
-                )
-
-            # Adjust visual similarity downward if reversals are prevalent
-            reversal_ratio = char_classification.get("reversal_ratio", 0.0)
-            if reversal_ratio > 0.3:
-                visual_similarity = round(
-                    max(visual_similarity * (1.0 - 0.4 * reversal_ratio), 0.10), 2
                 )
 
     return {
@@ -393,6 +529,7 @@ def analyze_handwriting_task(
             "hu_moments": [round(h, 4) for h in hu_moments[:4]]
         },
         "visual_similarity": visual_similarity,
+        "verification": verification,
         "letter_form_flag": letter_mismatch_flag,
         "char_classification": char_classification,
         "observations": observations

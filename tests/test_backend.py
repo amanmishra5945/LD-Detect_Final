@@ -421,3 +421,85 @@ def test_handwriting_classifier_and_vision_pipeline():
     assert canvas_res["total_characters"] >= 2
     assert "vision_risk_score" in canvas_res
     assert "summary" in canvas_res
+
+
+def test_dysgraphia_target_matching_and_scribble_detection():
+    import base64
+    import cv2
+    import numpy as np
+
+    # Create test child profile
+    u_res = client.post("/api/users", json={"name": "Handwriting Test Child", "age": 8})
+    uid = u_res.json()["id"]
+
+    def make_b64(draw_fn):
+        img = np.zeros((340, 800), dtype=np.uint8)
+        draw_fn(img)
+        _, buf = cv2.imencode(".png", img)
+        return "data:image/png;base64," + base64.b64encode(buf).decode("utf-8")
+
+    # 1. Test Scribbles / straight lines: Must NOT be Normal
+    def draw_scribble(img):
+        cv2.line(img, (100, 170), (700, 170), 255, 3)
+
+    scribble_payload = {
+        "user_id": uid,
+        "age": 8,
+        "device_type": "stylus",
+        "task_results": [
+            {"target": "b", "strokes": [], "duration_sec": 3.0, "corrections": 0, "image_base64": make_b64(draw_scribble), "canvas_width": 800, "canvas_height": 340},
+            {"target": "d", "strokes": [], "duration_sec": 3.0, "corrections": 0, "image_base64": make_b64(draw_scribble), "canvas_width": 800, "canvas_height": 340},
+            {"target": "cat", "strokes": [], "duration_sec": 5.0, "corrections": 0, "image_base64": make_b64(draw_scribble), "canvas_width": 800, "canvas_height": 340},
+            {"target": "sun", "strokes": [], "duration_sec": 5.0, "corrections": 0, "image_base64": make_b64(draw_scribble), "canvas_width": 800, "canvas_height": 340},
+            {"target": "red ball", "strokes": [], "duration_sec": 8.0, "corrections": 0, "image_base64": make_b64(draw_scribble), "canvas_width": 800, "canvas_height": 340},
+        ]
+    }
+    res_sc = client.post("/api/dysgraphia/session/submit", json=scribble_payload)
+    assert res_sc.status_code == 200
+    d_sc = res_sc.json()
+    assert d_sc["prediction"] in ("Moderate", "Severe"), f"Expected Moderate/Severe for scribbles, got {d_sc['prediction']}"
+    assert d_sc["matched_tasks_count"] == 0
+    assert d_sc["unmatched_tasks_count"] == 5
+    assert d_sc["score_breakdown"]["content_formation_accuracy"] >= 30
+
+    # 2. Test Accurate Writing: Must be Normal
+    def draw_text(txt):
+        def fn(img):
+            cv2.putText(img, txt, (80, 200), cv2.FONT_HERSHEY_SIMPLEX, 1.8 if len(txt)<=2 else 1.2, 255, 3, cv2.LINE_AA)
+        return fn
+
+    clean_payload = {
+        "user_id": uid,
+        "age": 8,
+        "device_type": "stylus",
+        "task_results": [
+            {"target": "b", "strokes": [], "duration_sec": 3.0, "corrections": 0, "image_base64": make_b64(draw_text("b")), "canvas_width": 800, "canvas_height": 340},
+            {"target": "d", "strokes": [], "duration_sec": 3.0, "corrections": 0, "image_base64": make_b64(draw_text("d")), "canvas_width": 800, "canvas_height": 340},
+            {"target": "cat", "strokes": [], "duration_sec": 5.0, "corrections": 0, "image_base64": make_b64(draw_text("cat")), "canvas_width": 800, "canvas_height": 340},
+            {"target": "sun", "strokes": [], "duration_sec": 5.0, "corrections": 0, "image_base64": make_b64(draw_text("sun")), "canvas_width": 800, "canvas_height": 340},
+            {"target": "red ball", "strokes": [], "duration_sec": 8.0, "corrections": 0, "image_base64": make_b64(draw_text("red ball")), "canvas_width": 800, "canvas_height": 340},
+        ]
+    }
+    res_cl = client.post("/api/dysgraphia/session/submit", json=clean_payload)
+    assert res_cl.status_code == 200
+    d_cl = res_cl.json()
+    assert d_cl["prediction"] == "Normal"
+    assert d_cl["screening_score"] < 20
+    assert d_cl["matched_tasks_count"] == 5
+
+    # 3. Test b/d letter reversal
+    rev_payload = {
+        "user_id": uid,
+        "age": 8,
+        "device_type": "stylus",
+        "task_results": [
+            {"target": "b", "strokes": [], "duration_sec": 3.0, "corrections": 0, "image_base64": make_b64(draw_text("d")), "canvas_width": 800, "canvas_height": 340},
+        ]
+    }
+    res_rv = client.post("/api/dysgraphia/session/submit", json=rev_payload)
+    assert res_rv.status_code == 200
+    d_rv = res_rv.json()
+    assert d_rv["score_breakdown"]["letter_form_and_reversals"] > 0
+    obs_text = " ".join(d_rv["explainable_report"]["what_we_observed"])
+    assert "reversal" in obs_text.lower()
+

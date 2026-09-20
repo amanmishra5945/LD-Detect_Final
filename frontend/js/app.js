@@ -1955,6 +1955,44 @@ function displayResults(res) {
         <span class="prob-val">${Math.round(val * 100)}%</span>
       </div>
     `).join("");
+  // Dysgraphia Target Fidelity & Word Match Section
+  const fidelityCard = document.getElementById("resDysgraphiaFidelityCard");
+  const fidelityBadge = document.getElementById("resFidelitySummaryBadge");
+  const tasksList = document.getElementById("resDysgraphiaTasksList");
+
+  if (res.disorder === "dysgraphia" && fidelityCard && fidelityBadge && tasksList) {
+    fidelityCard.style.display = "block";
+    const matched = res.matched_tasks_count !== undefined ? res.matched_tasks_count : 5;
+    const total = res.total_tasks_count !== undefined ? res.total_tasks_count : 5;
+    const accPct = Math.round(res.target_accuracy_pct !== undefined ? res.target_accuracy_pct : 85);
+    const isGood = matched >= 4 && accPct >= 65;
+
+    fidelityBadge.style.background = isGood ? "#ecfdf5" : "#fef2f2";
+    fidelityBadge.style.color = isGood ? "#065f46" : "#991b1b";
+    fidelityBadge.style.border = isGood ? "1px solid #a7f3d0" : "1px solid #fecaca";
+    fidelityBadge.textContent = `${isGood ? "✓" : "✗"} ${matched}/${total} Target Tasks Matched (${accPct}%)`;
+
+    const taskResults = res.per_task_results || [];
+    tasksList.innerHTML = taskResults.map((t, idx) => {
+      const ver = t.verification || {};
+      const tMatched = ver.is_matched !== false;
+      const tAcc = ver.accuracy_pct !== undefined ? ver.accuracy_pct : 85;
+      const isRev = ver.has_reversal || Boolean(t.letter_form_flag);
+      const bg = tMatched ? "#f0fdf4" : (isRev ? "#fffbeb" : "#fef2f2");
+      const border = tMatched ? "#bbf7d0" : (isRev ? "#fde68a" : "#fecaca");
+      const textCol = tMatched ? "#15803d" : (isRev ? "#b45309" : "#b91c1c");
+      const label = isRev ? "⚠️ Reversal" : (tMatched ? `✓ Matched (${tAcc}%)` : `✗ Mismatch (${tAcc}%)`);
+
+      return `
+        <div style="background:${bg}; border:1.5px solid ${border}; border-radius:8px; padding:10px; text-align:center;">
+          <div style="font-size:11px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Task ${idx + 1}</div>
+          <div style="font-size:18px; font-weight:800; color:var(--text-main); margin:4px 0;">"${t.target}"</div>
+          <div style="font-size:11px; font-weight:700; color:${textCol};">${label}</div>
+        </div>
+      `;
+    }).join("");
+  } else if (fidelityCard) {
+    fidelityCard.style.display = "none";
   }
 
   // Explainable findings

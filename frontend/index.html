@@ -229,6 +229,18 @@
         <div class="prob-container" id="resProbBars"></div>
       </div>
 
+      <!-- DYSGRAPHIA TARGET CONTENT FIDELITY CARD -->
+      <div class="card" id="resDysgraphiaFidelityCard" style="display:none; margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+          <h4 style="font-size:16px; margin:0;">✍️ Handwriting Word &amp; Letter Target Verification</h4>
+          <span class="badge" id="resFidelitySummaryBadge" style="font-size:13px; font-weight:700; padding:4px 12px; border-radius:999px;"></span>
+        </div>
+        <p style="font-size:13px; color:var(--text-muted); margin-bottom:14px; line-height:1.5;">
+          Computer vision verifies whether the child wrote the actual requested target words and letters, evaluating character count, closed loops, and stroke orientation to distinguish genuine handwriting from scribbles and reversals.
+        </p>
+        <div id="resDysgraphiaTasksList" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px;"></div>
+      </div>
+
       <!-- EXPLAINABLE FINDINGS -->
       <div class="explain-card">
         <h4>🔍 What We Observed</h4>

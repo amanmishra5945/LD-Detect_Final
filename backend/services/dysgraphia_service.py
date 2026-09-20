@@ -162,6 +162,20 @@ def evaluate_dysgraphia_session(payload: Dict[str, Any]) -> Dict[str, Any]:
             vision_corrected += s.get("Corrected", 0)
             vision_total_chars += cc.get("total_characters", 0)
 
+    # Target Word & Letter Fidelity Verification
+    task_verifications = [ev.get("verification", {}) for ev in per_task_evals]
+    unmatched_tasks = [ev for ev in per_task_evals if not ev.get("verification", {}).get("is_matched", True)]
+    unmatched_count = len(unmatched_tasks)
+    total_tasks = max(len(per_task_evals), 1)
+    target_accuracies = [ev.get("verification", {}).get("accuracy_pct", 70) for ev in per_task_evals]
+    avg_target_accuracy = float(np.mean(target_accuracies)) if target_accuracies else 80.0
+
+    reversal_tasks = [
+        ev for ev in per_task_evals
+        if ev.get("verification", {}).get("has_reversal", False) or ev.get("letter_form_flag")
+    ]
+    reversal_count = len(reversal_tasks)
+
     # Calibrated Explainable Scoring (0–100 scale; 0 = perfect fluency/control, >60 = higher indicator load)
     # Age expected speed ranges (CPS)
     if age <= 6:
@@ -176,102 +190,139 @@ def evaluate_dysgraphia_session(payload: Dict[str, Any]) -> Dict[str, Any]:
     components = {}
     reasons = []
 
-    # 1. Writing Fluency & Speed (max 20 pts)
-    if avg_speed_cps < exp_speed_min * 0.5:
-        components["writing_fluency"] = 20
-        reasons.append(f"Writing speed ({avg_speed_cps:.2f} char/sec) was substantially below the expected age range.")
-    elif avg_speed_cps < exp_speed_min or avg_speed_cps > exp_speed_max * 1.6:
-        components["writing_fluency"] = 10
-        reasons.append(f"Writing speed ({avg_speed_cps:.2f} char/sec) was outside the typical age range.")
+    # 1. Target Content Formation & Accuracy (max 35 pts)
+    # Inability to write the requested letters/words or drawing scribbles is a primary indicator
+    if unmatched_count >= 4:
+        content_score = 35
+    elif unmatched_count == 3:
+        content_score = 27
+    elif unmatched_count == 2:
+        content_score = 18
+    elif unmatched_count == 1:
+        content_score = 10
     else:
-        components["writing_fluency"] = 0
+        content_score = 0
 
-    # 2. Motor Control & Smoothness (max 25 pts)
+    if avg_target_accuracy < 50.0 and content_score < 35:
+        content_score = min(content_score + 6, 35)
+
+    components["content_formation_accuracy"] = content_score
+
+    if unmatched_count > 0:
+        reasons.append(
+            f"Content Fidelity: {unmatched_count} of {total_tasks} written task(s) did not match the "
+            f"requested target characters or words (average match: {avg_target_accuracy:.0f}%)."
+        )
+        for ev in unmatched_tasks[:3]:
+            r_list = ev.get("verification", {}).get("reasons", [])
+            detail = r_list[0] if r_list else f"Drawn shape did not match target '{ev.get('target', '')}'."
+            reasons.append(f"Task '{ev.get('target', '')}': {detail}")
+
+    # 2. Letter-Form Fidelity & Reversals (max 25 pts)
+    visual_score = 0
+    if reversal_count >= 2:
+        visual_score += 22
+        reasons.append(f"Multiple letter reversals detected ({reversal_count} tasks showed inverted letter orientations).")
+    elif reversal_count == 1:
+        visual_score += 14
+        rev_target = reversal_tasks[0].get("target", "")
+        reasons.append(f"Letter reversal detected on '{rev_target}' (e.g. confused orientation b/d or p/q).")
+
+    if letter_form_flags and visual_score < 20:
+        for flag in letter_form_flags[:2]:
+            if flag not in [r for r in reasons]:
+                reasons.append(f"Observed indicator: {flag}")
+
+    if avg_visual_similarity < 0.50 and visual_score < 25:
+        visual_score = min(visual_score + 8, 25)
+        reasons.append("Visual structural similarity to the target characters was below typical threshold.")
+
+    components["letter_form_and_reversals"] = min(visual_score, 25)
+
+    # 3. Motor Control & Smoothness (max 20 pts)
     if avg_smoothness >= 0.78:
         components["motor_control"] = 0
     elif avg_smoothness >= 0.62:
-        components["motor_control"] = 8
+        components["motor_control"] = 6
         reasons.append("Mild tremor or trajectory irregularity detected in stroke movement.")
     elif avg_smoothness >= 0.48:
-        components["motor_control"] = 16
+        components["motor_control"] = 13
         reasons.append("Stroke movement exhibited noticeable motor inconsistency.")
     else:
-        components["motor_control"] = 25
+        components["motor_control"] = 20
         reasons.append("High stroke irregularity and erratic pen trajectory observed.")
 
-    # 3. Spatial Organization & Consistency (max 25 pts)
+    # 4. Spatial Organization & Consistency (max 20 pts)
     spatial_score = 0
     if avg_letter_size_cv > 0.70:
-        spatial_score += 8
+        spatial_score += 7
         reasons.append("Character height and letter sizes varied inconsistently.")
     elif avg_letter_size_cv > 0.45:
         spatial_score += 4
 
     if avg_spacing_cv > 1.10:
-        spatial_score += 8
+        spatial_score += 7
         reasons.append("Inter-letter and word spacing was notably uneven.")
     elif avg_spacing_cv > 0.80:
         spatial_score += 4
 
     if avg_baseline_dev > 0.08:
-        spatial_score += 9
+        spatial_score += 8
         reasons.append("Written text showed marked deviation from a straight horizontal baseline.")
     elif avg_baseline_dev > 0.045:
         spatial_score += 4
-    components["spatial_organization"] = min(spatial_score, 25)
+    components["spatial_organization"] = min(spatial_score, 20)
 
-    # 4. Pauses and Hesitations (max 15 pts)
-    pause_score = min(total_long_pauses * 3, 15)
+    # 5. Writing Fluency & Speed (max 15 pts)
+    if avg_speed_cps < exp_speed_min * 0.5:
+        components["writing_fluency"] = 15
+        reasons.append(f"Writing speed ({avg_speed_cps:.2f} char/sec) was substantially below the expected age range.")
+    elif avg_speed_cps < exp_speed_min or avg_speed_cps > exp_speed_max * 1.6:
+        components["writing_fluency"] = 8
+        reasons.append(f"Writing speed ({avg_speed_cps:.2f} char/sec) was outside the typical age range.")
+    else:
+        components["writing_fluency"] = 0
+
+    # 6. Pauses and Hesitations (max 10 pts)
+    pause_score = min(total_long_pauses * 3, 10)
     components["pauses_and_hesitations"] = pause_score
-    if pause_score > 6:
+    if pause_score >= 6:
         reasons.append(f"Frequent pauses ({total_long_pauses} hesitation pauses >1.5s) interrupted writing fluency.")
 
-    # 5. Letter-Form Accuracy & Visual Similarity (max 15 pts)
-    visual_score = 0
-    if letter_form_flags:
-        visual_score += 8
-        for flag in letter_form_flags[:2]:
-            reasons.append(f"Observed indicator: {flag}")
-    if avg_visual_similarity < 0.50:
-        visual_score += 7
-        reasons.append("Visual structural similarity to the target characters was below typical threshold.")
-    components["letter_form_accuracy"] = min(visual_score, 15)
-
-    # Corrections contribution (max 5 pts)
+    # 7. Corrections contribution (max 5 pts)
     if total_corrections > 0:
         components["corrections"] = min(total_corrections * 2, 5)
         reasons.append(f"{total_corrections} stroke correction(s)/undo(s) were recorded.")
     else:
         components["corrections"] = 0
 
-    # 6. Vision-based character classification (max 15 pts)
+    # 8. Vision-based character classification (max 10 pts)
     if vision_total_chars > 0:
         rev_ratio = vision_reversals / vision_total_chars
         cor_ratio = vision_corrected / vision_total_chars
         vision_score = 0
         if rev_ratio > 0.5:
-            vision_score += 12
+            vision_score += 8
             reasons.append(
                 f"Vision model detected reversed letter-forms in "
-                f"{vision_reversals}/{vision_total_chars} characters — "
-                f"a strong indicator of letter confusion."
+                f"{vision_reversals}/{vision_total_chars} characters."
             )
         elif rev_ratio > 0.2:
-            vision_score += 7
+            vision_score += 5
             reasons.append(
                 f"Vision model detected some reversed letter-forms "
                 f"({vision_reversals}/{vision_total_chars} characters)."
             )
         elif rev_ratio > 0:
-            vision_score += 3
+            vision_score += 2
 
         if cor_ratio > 0.3:
-            vision_score += 3
+            vision_score += 2
             reasons.append(
                 f"Vision model detected self-correction patterns in "
                 f"{vision_corrected}/{vision_total_chars} characters."
             )
-        components["vision_classification"] = min(vision_score, 15)
+        components["vision_classification"] = min(vision_score, 10)
     else:
         components["vision_classification"] = 0
 
@@ -279,9 +330,9 @@ def evaluate_dysgraphia_session(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     if screening_score < 20:
         predicted_label = "Normal"
-    elif screening_score < 40:
+    elif screening_score < 42:
         predicted_label = "Mild"
-    elif screening_score < 65:
+    elif screening_score < 68:
         predicted_label = "Moderate"
     else:
         predicted_label = "Severe"
@@ -335,6 +386,10 @@ def evaluate_dysgraphia_session(payload: Dict[str, Any]) -> Dict[str, Any]:
         "probabilities": probabilities,
         "screening_title": "Dysgraphia Screening Result",
         "screening_score": screening_score,
+        "target_accuracy_pct": round(avg_target_accuracy, 1),
+        "matched_tasks_count": total_tasks - unmatched_count,
+        "unmatched_tasks_count": unmatched_count,
+        "total_tasks_count": total_tasks,
         "score_breakdown": components,
         "disclaimer": "Screening support only — not a clinical diagnosis.",
         "input_device": device_type,

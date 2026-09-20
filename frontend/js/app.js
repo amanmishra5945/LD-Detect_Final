@@ -474,8 +474,6 @@ function renderStageLetterRecognition(container, stage) {
       const btnCor = document.getElementById(`btnLetterCorrect_${idx}`);
       const btnConf = document.getElementById(`btnLetterConf_${idx}`);
 
-      await requestMicrophoneAccess();
-
       try {
         const SpeechClass = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechClass) {
@@ -483,14 +481,14 @@ function renderStageLetterRecognition(container, stage) {
           return;
         }
         const rec = new SpeechClass();
-        rec.lang = getSelectedAccent();
+        rec.lang = getSelectedAccent() || "en-US";
         rec.interimResults = true;
         rec.maxAlternatives = 3;
 
         rec.onstart = () => {
           btn.disabled = true;
           btn.textContent = "🎙 Listening…";
-          if (statusSpan) statusSpan.textContent = `Listening (${getSelectedAccent()})… say "${targetChar}" sound now`;
+          if (statusSpan) statusSpan.innerHTML = `<span style="color:#2563EB; font-weight:700;">● LISTENING… Say "${targetChar}" now!</span>`;
         };
 
         rec.onresult = async (evt) => {
@@ -720,7 +718,6 @@ function renderStageWordRecognition(container, stage) {
 
     // Single-word speech recognition
     async function startSingleRec() {
-      await requestMicrophoneAccess();
       try {
         const SingleSpeech = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SingleSpeech) {
@@ -728,7 +725,7 @@ function renderStageWordRecognition(container, stage) {
           return;
         }
         const singleRec = new SingleSpeech();
-        singleRec.lang = getSelectedAccent();
+        singleRec.lang = getSelectedAccent() || "en-US";
         singleRec.interimResults = true;
         singleRec.maxAlternatives = 3;
 
@@ -738,8 +735,7 @@ function renderStageWordRecognition(container, stage) {
             micWordBtn.textContent = "🎙 Listening…";
           }
           if (micStatus) {
-            micStatus.textContent = `Listening… Speak "${currentTarget}" now`;
-            micStatus.style.color = "var(--primary)";
+            micStatus.innerHTML = `<span style="color:#2563EB; font-weight:700;">● LISTENING… Say "${currentTarget}" now!</span>`;
           }
         };
 
@@ -1209,41 +1205,34 @@ async function finalizeDyslexiaSubmission() {
 let liveTimerInterval = null;
 
 async function requestMicrophoneAccess() {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    console.warn("navigator.mediaDevices.getUserMedia not supported in this browser");
-    return false;
-  }
-
+  // Optional audio visualizer helper — MUST NEVER block or crash speech recognition
   try {
-    if (!micMediaStream || !micMediaStream.active) {
-      micMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      if (!micMediaStream || !micMediaStream.active) {
+        micMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null);
+      }
+      if (micMediaStream) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx && (!audioContext || audioContext.state === "closed")) {
+          audioContext = new AudioCtx();
+        }
+        if (audioContext && audioContext.state === "suspended") {
+          await audioContext.resume().catch(() => {});
+        }
+        if (audioContext && !micAnalyser) {
+          const source = audioContext.createMediaStreamSource(micMediaStream);
+          micAnalyser = audioContext.createAnalyser();
+          micAnalyser.fftSize = 64;
+          source.connect(micAnalyser);
+        }
+        startLiveAudioVisualizer();
+        return true;
+      }
     }
-
-    // Set up Web Audio API volume meter so the audio wave visibly animates to child's voice
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx && (!audioContext || audioContext.state === "closed")) {
-        audioContext = new AudioCtx();
-      }
-      if (audioContext && audioContext.state === "suspended") {
-        await audioContext.resume();
-      }
-      if (audioContext && micMediaStream && !micAnalyser) {
-        const source = audioContext.createMediaStreamSource(micMediaStream);
-        micAnalyser = audioContext.createAnalyser();
-        micAnalyser.fftSize = 64;
-        source.connect(micAnalyser);
-      }
-      startLiveAudioVisualizer();
-    } catch (e) {
-      console.warn("AudioContext setup note:", e);
-    }
-
-    return true;
-  } catch (err) {
-    console.warn("Microphone access error:", err);
-    return false;
+  } catch (e) {
+    console.warn("Audio visualizer note:", e);
   }
+  return false;
 }
 
 function startLiveAudioVisualizer() {
@@ -1280,10 +1269,20 @@ function setupSpeechRecognitionEngine() {
   const SpeechClass = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechClass) return;
 
+  try {
+    if (speechRecognizer) {
+      speechRecognizer.onstart = null;
+      speechRecognizer.onresult = null;
+      speechRecognizer.onerror = null;
+      speechRecognizer.onend = null;
+      try { speechRecognizer.abort(); } catch (e) {}
+    }
+  } catch (e) {}
+
   speechRecognizer = new SpeechClass();
   speechRecognizer.continuous = true;
   speechRecognizer.interimResults = true;
-  speechRecognizer.lang = getSelectedAccent();
+  speechRecognizer.lang = getSelectedAccent() || "en-US";
   speechRecognizer.maxAlternatives = 3;
 
   speechRecognizer.onstart = () => {
@@ -1299,7 +1298,7 @@ function setupSpeechRecognitionEngine() {
     const pill = document.getElementById("liveModelPill");
     if (pill) pill.classList.add("active-listening");
     const modelStatus = document.getElementById("liveModelStatus");
-    if (modelStatus) modelStatus.textContent = "Live ML Model: Analyzing voice stream…";
+    if (modelStatus) modelStatus.textContent = "Live ML Model: Listening to voice stream…";
 
     // Start 100ms real-time timer
     clearInterval(liveTimerInterval);
@@ -1313,7 +1312,7 @@ function setupSpeechRecognitionEngine() {
       }
     }, 100);
 
-    updateMicVisualState(true, "Listening… Child reading aloud");
+    updateMicVisualState(true, "● LISTENING NOW! Speak the passage aloud into your microphone");
   };
 
   speechRecognizer.onresult = async (event) => {
@@ -1337,27 +1336,33 @@ function setupSpeechRecognitionEngine() {
       speechConfidenceAvg = confs.reduce((a, b) => a + b, 0) / confs.length;
     }
 
+    // Immediately show heard text right under mic
+    const statusText = document.getElementById("micStatusText");
+    if (statusText) {
+      statusText.innerHTML = `Heard: "<span style="color:#15803D; font-weight:700;">${speechTranscriptAccumulated}</span>"`;
+    }
+
     // Real-time backend alignment + live ML prediction call
     await runSpeechAlignmentUpdate(speechTranscriptAccumulated);
   };
 
   speechRecognizer.onend = () => {
     if (userWantsListening) {
-      // Auto-restart recognition so a pause/hesitation does not kill listening
+      // Auto-restart recognition if speech paused briefly
       setTimeout(() => {
-        if (userWantsListening) {
+        if (userWantsListening && speechRecognizer) {
           try {
             speechRecognizer.start();
           } catch (e) {}
         }
-      }, 150);
+      }, 200);
       return;
     }
 
     isListening = false;
     clearInterval(liveTimerInterval);
     const durSec = speechStartTimestamp ? (performance.now() - speechStartTimestamp) / 1000.0 : 4.0;
-    updateMicVisualState(false, "Microphone paused. Click to speak again");
+    updateMicVisualState(false, "Microphone paused. Click 🎙 to speak again");
 
     const wave = document.getElementById("audioWave");
     if (wave) wave.classList.remove("active");
@@ -1379,23 +1384,31 @@ function setupSpeechRecognitionEngine() {
   speechRecognizer.onerror = (e) => {
     console.warn("Speech recognition error:", e.error);
     if (e.error === "no-speech") {
-      // Keep listening if user clicked mic
-      if (userWantsListening) return;
+      if (userWantsListening) {
+        updateMicVisualState(true, "● Listening… Speak into your microphone now");
+        return;
+      }
     }
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
       userWantsListening = false;
       isListening = false;
       clearInterval(liveTimerInterval);
-      updateMicVisualState(false, "⚠️ Microphone access blocked. Please click the lock/mic icon in the browser address bar to Allow.");
-      showToast("Microphone access blocked. Please allow microphone in browser address bar.");
+      updateMicVisualState(false, "⚠️ Microphone is blocked! Click the lock/camera icon 🔒 in your browser address bar to Allow microphone, then try again.");
+      showToast("Microphone blocked: Please click Allow in browser address bar.");
     } else if (e.error === "network") {
       userWantsListening = false;
       isListening = false;
       clearInterval(liveTimerInterval);
-      updateMicVisualState(false, "⚠️ Voice service timeout. Use Demo buttons or type spoken words below.");
-      showToast("Speech service timeout. You can use 'Demo Speech' or type spoken words directly.");
+      updateMicVisualState(false, "⚠️ Speech service network error. Note: Brave browser blocks speech by default (enable in Brave Settings > Privacy), or use Chrome/Edge or type words below.");
+      showToast("Speech service error. You can also type spoken words in the box below.");
+    } else if (e.error === "audio-capture") {
+      userWantsListening = false;
+      isListening = false;
+      clearInterval(liveTimerInterval);
+      updateMicVisualState(false, "⚠️ No microphone detected or mic is in use by another application.");
+      showToast("No microphone detected. Please check your mic connection.");
     } else {
-      updateMicVisualState(false, `Mic: ${e.error}. Click to retry or use Demo.`);
+      updateMicVisualState(false, `Mic: ${e.error}. Click to retry or type below.`);
     }
   };
 }
@@ -1410,13 +1423,21 @@ function startSpeechRecognizer() {
     speechRecognizer.start();
   } catch (err) {
     console.warn("speechRecognizer.start() note:", err);
+    if (err.name === "InvalidStateError") {
+      isListening = true;
+      updateMicVisualState(true, "● LISTENING NOW! Speak aloud into your microphone");
+    } else {
+      setupSpeechRecognitionEngine();
+      try { speechRecognizer.start(); } catch (e2) {}
+    }
   }
 }
 
 async function toggleMicrophone(expectedText) {
   const SpeechClass = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechClass) {
-    showToast("Web Speech API not supported on this browser. Try Chrome/Edge or use Demo Speech.");
+    showToast("Web Speech API not supported on this browser. Please use Google Chrome or Microsoft Edge.");
+    updateMicVisualState(false, "⚠️ Web Speech API not supported on this browser. Please use Chrome or Edge, or type spoken words below.");
     return;
   }
 
@@ -1427,15 +1448,10 @@ async function toggleMicrophone(expectedText) {
   }
 
   userWantsListening = true;
-  updateMicVisualState(true, "Requesting microphone permission…");
+  updateMicVisualState(true, "🎙 Starting microphone… please speak clearly");
 
-  const granted = await requestMicrophoneAccess();
-  if (!granted && !micMediaStream) {
-    userWantsListening = false;
-    updateMicVisualState(false, "⚠️ Microphone permission blocked. Click lock/mic icon in address bar to Allow.");
-    showToast("Microphone permission needed: Please click Allow on the microphone prompt.");
-    return;
-  }
+  // Optional visualizer (never blocks speech recognition)
+  requestMicrophoneAccess().catch(() => {});
 
   startSpeechRecognizer();
 }

@@ -5,11 +5,30 @@
  * and explainable parent/teacher result dashboards.
  */
 
-const API_BASE = (window.location.port === "8000" || (!window.location.port && window.location.protocol.startsWith("http"))) ? window.location.origin : "http://127.0.0.1:8000";
+function getApiBase() {
+  if (typeof window !== "undefined" && window.location && window.location.protocol.startsWith("http")) {
+    const port = window.location.port;
+    const hostname = window.location.hostname || "127.0.0.1";
+    // If already running on port 8000 or production (Render / standard HTTP/HTTPS)
+    if (port === "8000" || !port || port === "80" || port === "443") {
+      return window.location.origin;
+    }
+    // If on dev server port like 5500, match host and route to backend port 8000
+    return `${window.location.protocol}//${hostname}:8000`;
+  }
+  return "http://127.0.0.1:8000";
+}
 
+const API_BASE = getApiBase();
 
 // Global state
-let currentChild = null;
+let currentChild = {
+  id: 1,
+  name: "Student",
+  age: 8,
+  role: "student",
+  difficulty_label: "Elementary (Ages 7–8)"
+};
 let allUsers = [];
 let dyslexiaSession = null;
 let currentDyslexiaStageIndex = 0;
@@ -87,14 +106,20 @@ function setupAccentSelector() {
 // INITIALIZATION
 // =========================================================================
 
-document.addEventListener("DOMContentLoaded", async () => {
-  setupNavigation();
-  setupCanvas();
-  setupAccentSelector();
-  setupSpeechRecognitionEngine();
-  await checkBackendHealth();
-  await loadChildProfiles();
-});
+async function initApplication() {
+  try { setupNavigation(); } catch (e) { console.error("setupNavigation error", e); }
+  try { setupCanvas(); } catch (e) { console.error("setupCanvas error", e); }
+  try { setupAccentSelector(); } catch (e) { console.error("setupAccentSelector error", e); }
+  try { setupSpeechRecognitionEngine(); } catch (e) { console.error("setupSpeechRecognitionEngine error", e); }
+  try { await checkBackendHealth(); } catch (e) { console.error("checkBackendHealth error", e); }
+  try { await loadChildProfiles(); } catch (e) { console.error("loadChildProfiles error", e); }
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initApplication);
+} else {
+  initApplication();
+}
 
 // =========================================================================
 // NAVIGATION & VIEWS

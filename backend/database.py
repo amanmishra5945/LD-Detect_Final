@@ -80,6 +80,15 @@ def init_db():
         except Exception:
             pass
 
+    # Ensure at least one default child profile exists for seamless initial testing
+    try:
+        with SessionLocal() as db:
+            if db.query(User).count() == 0:
+                db.add(User(name="Alex Sharma", age=8, role="student"))
+                db.commit()
+    except Exception:
+        pass
+
 
 def get_db():
     db = SessionLocal()

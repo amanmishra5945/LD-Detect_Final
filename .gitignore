@@ -1,0 +1,41 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environments
+env/
+venv/
+ENV/
+.venv/
+
+# Environment Variables & Secrets
+.env
+.env.local
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editor & OS Artifacts
+*.swp
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Large Datasets & Archives
+*.rar
+*.zip
+*.tar.gz
+backend/data/archive/
+
+# Logs
+*.log
+
+# Local test databases (do not commit production/local user assessment DB)
+*.db
+!tests/*.db

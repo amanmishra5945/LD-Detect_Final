@@ -1,0 +1,290 @@
+{
+  "metadata": {
+    "version": "2.0",
+    "description": "Smart Learning Disability Screening Test Bank - Dysgraphia (Ages 5-12)"
+  },
+  "tasks": {
+    "beginner": [
+      {
+        "id": "dg_b_1",
+        "stage": 1,
+        "type": "letter",
+        "target": "A",
+        "prompt": "Write the uppercase letter A"
+      },
+      {
+        "id": "dg_b_2",
+        "stage": 2,
+        "type": "letter",
+        "target": "b",
+        "prompt": "Write the lowercase letter b"
+      },
+      {
+        "id": "dg_b_3",
+        "stage": 3,
+        "type": "simple_word",
+        "target": "cat",
+        "prompt": "Write the word: cat"
+      },
+      {
+        "id": "dg_b_4",
+        "stage": 4,
+        "type": "simple_word",
+        "target": "sun",
+        "prompt": "Write the word: sun"
+      },
+      {
+        "id": "dg_b_5",
+        "stage": 5,
+        "type": "phrase",
+        "target": "red ball",
+        "prompt": "Copy this phrase: red ball"
+      }
+    ],
+    "elementary": [
+      {
+        "id": "dg_e_1",
+        "stage": 1,
+        "type": "letter",
+        "target": "d",
+        "prompt": "Write the lowercase letter d"
+      },
+      {
+        "id": "dg_e_2",
+        "stage": 2,
+        "type": "letter",
+        "target": "p",
+        "prompt": "Write the lowercase letter p"
+      },
+      {
+        "id": "dg_e_3",
+        "stage": 3,
+        "type": "word",
+        "target": "tree",
+        "prompt": "Write the word: tree"
+      },
+      {
+        "id": "dg_e_4",
+        "stage": 4,
+        "type": "word",
+        "target": "happy",
+        "prompt": "Write the word: happy"
+      },
+      {
+        "id": "dg_e_5",
+        "stage": 5,
+        "type": "phrase",
+        "target": "my green garden",
+        "prompt": "Copy this phrase: my green garden"
+      }
+    ],
+    "intermediate": [
+      {
+        "id": "dg_i_1",
+        "stage": 1,
+        "type": "letter",
+        "target": "q",
+        "prompt": "Write the lowercase letter q"
+      },
+      {
+        "id": "dg_i_2",
+        "stage": 2,
+        "type": "letter",
+        "target": "m",
+        "prompt": "Write the lowercase letter m"
+      },
+      {
+        "id": "dg_i_3",
+        "stage": 3,
+        "type": "word",
+        "target": "school",
+        "prompt": "Write the word: school"
+      },
+      {
+        "id": "dg_i_4",
+        "stage": 4,
+        "type": "word",
+        "target": "friend",
+        "prompt": "Write the word: friend"
+      },
+      {
+        "id": "dg_i_5",
+        "stage": 5,
+        "type": "sentence",
+        "target": "The warm sun rises early.",
+        "prompt": "Copy this sentence: The warm sun rises early."
+      }
+    ],
+    "advanced": [
+      {
+        "id": "dg_a_1",
+        "stage": 1,
+        "type": "letter",
+        "target": "f",
+        "prompt": "Write the cursive or print letter f"
+      },
+      {
+        "id": "dg_a_2",
+        "stage": 2,
+        "type": "letter",
+        "target": "k",
+        "prompt": "Write the lowercase letter k"
+      },
+      {
+        "id": "dg_a_3",
+        "stage": 3,
+        "type": "word",
+        "target": "mountain",
+        "prompt": "Write the word: mountain"
+      },
+      {
+        "id": "dg_a_4",
+        "stage": 4,
+        "type": "word",
+        "target": "journey",
+        "prompt": "Write the word: journey"
+      },
+      {
+        "id": "dg_a_5",
+        "stage": 5,
+        "type": "sentence",
+        "target": "Curiosity leads to great discoveries.",
+        "prompt": "Copy this sentence: Curiosity leads to great discoveries."
+      }
+    ]
+  },
+  "alternates": {
+    "beginner": {
+      "letters": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "b",
+        "d",
+        "p",
+        "m",
+        "t",
+        "s"
+      ],
+      "words": [
+        "cat",
+        "dog",
+        "sun",
+        "hat",
+        "bed",
+        "cup",
+        "pig",
+        "van",
+        "box",
+        "nut"
+      ],
+      "phrases": [
+        "red ball",
+        "big dog",
+        "hot sun",
+        "my hat",
+        "ten stars"
+      ]
+    },
+    "elementary": {
+      "letters": [
+        "d",
+        "p",
+        "q",
+        "m",
+        "n",
+        "u",
+        "v",
+        "w",
+        "z",
+        "g"
+      ],
+      "words": [
+        "tree",
+        "bird",
+        "fish",
+        "frog",
+        "jump",
+        "blue",
+        "hand",
+        "milk",
+        "door",
+        "rock"
+      ],
+      "phrases": [
+        "my green garden",
+        "two little ducks",
+        "a sunny morning",
+        "playing in the park",
+        "fresh sweet bread"
+      ]
+    },
+    "intermediate": {
+      "letters": [
+        "q",
+        "m",
+        "n",
+        "b",
+        "d",
+        "h",
+        "k",
+        "r",
+        "s",
+        "t"
+      ],
+      "words": [
+        "school",
+        "friend",
+        "garden",
+        "pencil",
+        "window",
+        "family",
+        "yellow",
+        "holiday",
+        "rainbow",
+        "guitar"
+      ],
+      "sentences": [
+        "The warm sun rises early.",
+        "A gentle breeze moved the trees.",
+        "We watched three playful dolphins.",
+        "Rohan rode his new bicycle.",
+        "The class visited a bakery."
+      ]
+    },
+    "advanced": {
+      "letters": [
+        "f",
+        "k",
+        "z",
+        "x",
+        "y",
+        "j",
+        "g",
+        "p",
+        "q",
+        "b"
+      ],
+      "words": [
+        "mountain",
+        "journey",
+        "beautiful",
+        "calendar",
+        "adventure",
+        "together",
+        "discovery",
+        "signature",
+        "creativity",
+        "curiosity"
+      ],
+      "sentences": [
+        "Curiosity leads to great discoveries.",
+        "Modern science explores deep marine habitats.",
+        "Preserving biodiversity maintains ecological harmony.",
+        "Collaborative research accelerates technological breakthroughs.",
+        "Astronomers observe distant planetary formations."
+      ]
+    }
+  }
+}

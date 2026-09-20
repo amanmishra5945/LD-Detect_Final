@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Learning Disability Screening System (Ages 5–12)</title>
+  <meta name="description" content="AI-assisted multi-stage screening support for Dyslexia and Dysgraphia for children aged 5–12. Educational screening aid only — not a clinical diagnosis.">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app-container">
+  <!-- SIDEBAR NAVIGATION -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">🧠</div>
+      <span class="brand-title">SmartLD</span>
+      <span class="brand-badge">v2.0</span>
+    </div>
+    <div class="sidebar-desc">AI-Based Screening Support for Dyslexia &amp; Dysgraphia (Ages 5–12)</div>
+
+    <nav class="nav-group">
+      <button class="nav-link active" data-view="dashboard">
+        <span class="icon">🏠</span>
+        <span>Dashboard</span>
+      </button>
+      <button class="nav-link" data-view="dyslexia">
+        <span class="icon">📖</span>
+        <span>Dyslexia Screening</span>
+      </button>
+      <button class="nav-link" data-view="dysgraphia">
+        <span class="icon">✍️</span>
+        <span>Dysgraphia Screening</span>
+      </button>
+      <button class="nav-link" data-view="results">
+        <span class="icon">📊</span>
+        <span>Results &amp; Report</span>
+      </button>
+      <button class="nav-link" data-view="history">
+        <span class="icon">🕒</span>
+        <span>Assessment History</span>
+      </button>
+      <button class="nav-link" data-view="about">
+        <span class="icon">ℹ️</span>
+        <span>About &amp; Ethics</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <strong>Screening Support Only</strong><br>
+      Not a clinical diagnostic tool. Share observed indicators with a qualified specialist or teacher.
+    </div>
+  </aside>
+
+  <!-- MAIN WRAPPER -->
+  <div class="main-wrapper">
+    <!-- TOP BAR -->
+    <header class="topbar">
+      <div class="profile-selector-box">
+        <div class="child-avatar" id="childAvatar">A</div>
+        <div>
+          <select class="child-select" id="childSelect" aria-label="Select child profile"></select>
+          <button class="btn btn-outline btn-sm" id="btnNewProfile" style="margin-left:8px;">+ New Child</button>
+        </div>
+        <span class="tier-badge" id="childTierBadge">Elementary (Ages 7–8)</span>
+      </div>
+
+      <div class="accent-selector-box" style="display:flex; align-items:center; gap:8px; margin-left:auto; margin-right:16px;">
+        <label for="accentSelect" style="font-size:13px; font-weight:600; color:var(--text-muted); display:flex; align-items:center; gap:4px;">
+          <span>🎙 Accent:</span>
+        </label>
+        <select class="child-select" id="accentSelect" aria-label="Speech Recognition Accent" style="padding:6px 10px; font-weight:600; border-radius:8px; border:1.5px solid var(--border); background:#fff; cursor:pointer;">
+          <option value="en-IN" selected>🇮🇳 English (India) - en-IN</option>
+          <option value="en-US">🇺🇸 English (US) - en-US</option>
+          <option value="en-GB">🇬🇧 English (UK) - en-GB</option>
+        </select>
+        <span class="badge" id="accentModelBadge" style="background:#ecfdf5; color:#047857; font-size:11px; font-weight:700; padding:4px 8px; border-radius:999px; border:1px solid #a7f3d0;">🇮🇳 Indian Acoustic Model</span>
+      </div>
+
+      <div class="status-indicator" id="apiStatusIndicator">
+        <span class="status-dot"></span> Checking API…
+      </div>
+    </header>
+
+    <!-- VIEW: DASHBOARD -->
+    <main class="page-view active" id="view-dashboard">
+      <div class="disclaimer-banner">
+        <span>⚠️</span>
+        <div><strong>Educational Screening Notice:</strong> This system measures speech fluency and handwriting motor patterns to identify observed indicators. It does NOT provide a medical or clinical diagnosis.</div>
+      </div>
+
+      <div class="page-header">
+        <h1 class="page-title">Welcome, <span id="dashChildName">Student</span> 👋</h1>
+        <p class="page-subtitle">Age: <strong id="dashChildAge">8 years</strong> · Current Difficulty: <strong id="dashChildTier">Elementary</strong> (automatically adapted)</p>
+      </div>
+
+      <div class="stat-row">
+        <div class="stat-tile">
+          <div class="num" id="statTotalTests">0</div>
+          <div class="label">Total Screenings Completed</div>
+        </div>
+        <div class="stat-tile">
+          <div class="num" id="statObservedFlags">0</div>
+          <div class="label">Indicators Flagged (Above Normal)</div>
+        </div>
+        <div class="stat-tile">
+          <div class="num" id="statLatestOutcome" style="font-size:22px;">—</div>
+          <div class="label">Most Recent Screening Result</div>
+        </div>
+      </div>
+
+      <div class="dash-grid">
+        <!-- DYSLEXIA CARD -->
+        <div class="card card-hover">
+          <div class="card-icon blue">📖</div>
+          <h3>Dyslexia Screening Assessment</h3>
+          <p>Multi-stage interactive screening: Letter identification, single-word decoding, live oral sentence reading with microphone alignment, phonological awareness, spelling, and rapid naming.</p>
+          <button class="btn btn-primary" onclick="navigateToView('dyslexia')">Start Dyslexia Assessment →</button>
+        </div>
+
+        <!-- DYSGRAPHIA CARD -->
+        <div class="card card-hover">
+          <div class="card-icon green">✍️</div>
+          <h3>Dysgraphia Screening Assessment</h3>
+          <p>Age-appropriate 5-task handwriting screening: Writing letters, words, and sentences on an interactive canvas. Combines OpenCV computer vision shape analysis with pen stroke kinematics.</p>
+          <button class="btn btn-brand" onclick="navigateToView('dysgraphia')">Start Dysgraphia Assessment →</button>
+        </div>
+      </div>
+
+      <div class="page-header" style="margin-top:20px;">
+        <h3 style="font-size:20px;margin-bottom:12px;">Recent Screening Records</h3>
+      </div>
+      <div id="dashRecentList"></div>
+    </main>
+
+    <!-- VIEW: DYSLEXIA (7 STAGES) -->
+    <main class="page-view" id="view-dyslexia">
+      <div class="disclaimer-banner">
+        <span>ℹ️</span>
+        <div><strong>Dyslexia Screening Support:</strong> Tasks automatically adapt to the child's age group. Only one task is shown at a time for a comfortable child experience.</div>
+      </div>
+
+      <div class="wizard-box">
+        <div class="progress-header">
+          <div class="step-indicator" id="dyslexiaStepText">Stage 1 of 7 — Letter Recognition</div>
+          <span class="tier-badge" id="dyslexiaAgeTierBadge">Age-Adapted</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="dyslexiaProgressFill" style="width: 14%;"></div>
+        </div>
+
+        <!-- STAGE CONTENT MOUNT -->
+        <div id="dyslexiaStageContainer"></div>
+      </div>
+    </main>
+
+    <!-- VIEW: DYSGRAPHIA (5 TASKS) -->
+    <main class="page-view" id="view-dysgraphia">
+      <div class="disclaimer-banner">
+        <span>ℹ️</span>
+        <div><strong>Dysgraphia Handwriting Screening:</strong> Connect an external stylus tablet or write directly on touch screen. Mouse drawing is supported for demonstration.</div>
+      </div>
+
+      <div class="wizard-box">
+        <div class="progress-header">
+          <div class="step-indicator" id="dysgStepText">Task 1 of 5 — Letter Writing</div>
+          <div class="device-indicator">
+            <span>Device:</span>
+            <span class="tier-badge" id="stylusDeviceBadge">Stylus / Pointer</span>
+          </div>
+        </div>
+        <div class="progress-track">
+          <div class="progress-fill" id="dysgProgressFill" style="width: 20%;"></div>
+        </div>
+
+        <div class="task-prompt-box">
+          <div class="task-label" id="dysgInstruction">Write the letter:</div>
+          <div class="task-target"><span class="target-highlight" id="dysgTargetDisplay">b</span></div>
+        </div>
+
+        <!-- CANVAS -->
+        <div class="canvas-container">
+          <div class="canvas-guidelines"></div>
+          <canvas id="handwritingCanvas"></canvas>
+        </div>
+
+        <div class="canvas-toolbar">
+          <div>
+            <button class="btn btn-outline btn-sm" id="btnClearCanvas">🗑 Clear Canvas</button>
+          </div>
+          <div>
+            <button class="btn btn-brand" id="btnNextDysgTask">Next Task →</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- VIEW: RESULTS -->
+    <main class="page-view" id="view-results">
+      <div class="page-header">
+        <h1 class="page-title">Screening Results &amp; Observed Indicators</h1>
+        <p class="page-subtitle">Detailed explainable report based on oral speech alignment, phonological tasks, and handwriting computer vision.</p>
+      </div>
+
+      <!-- RESULTS HERO -->
+      <div class="results-header-card">
+        <div class="confidence-gauge-box">
+          <svg width="120" height="120">
+            <circle cx="60" cy="60" r="46" stroke="#E2E8F0" stroke-width="8" fill="none" />
+            <circle id="resGaugeCircle" cx="60" cy="60" r="46" stroke="#2563EB" stroke-width="8" fill="none"
+              stroke-dasharray="289" stroke-dashoffset="40" stroke-linecap="round" />
+          </svg>
+          <div class="gauge-pct-text" id="resConfidenceVal">88%</div>
+        </div>
+
+        <div class="results-title-area">
+          <h2 id="resDisorderTitle" style="font-size:24px;margin-bottom:6px;">Dyslexia Screening Result</h2>
+          <span class="badge-risk Normal" id="resRiskBadge">Normal</span>
+          <div style="font-size:13px;color:var(--text-muted);margin-top:8px;">
+            Screening support only — not a clinical diagnosis. Further professional evaluation may be helpful if persistent difficulties are observed.
+          </div>
+        </div>
+      </div>
+
+      <!-- PROBABILITIES -->
+      <div class="card" style="margin-bottom:20px;">
+        <h4 style="font-size:16px;margin-bottom:12px;">Multi-Class Risk Distribution (Normal / Mild / Moderate / Severe)</h4>
+        <div class="prob-container" id="resProbBars"></div>
+      </div>
+
+      <!-- EXPLAINABLE FINDINGS -->
+      <div class="explain-card">
+        <h4>🔍 What We Observed</h4>
+        <ul class="bullet-list" id="resObservationsList">
+          <li>Assessment data will appear after submitting an assessment.</li>
+        </ul>
+      </div>
+
+      <div class="explain-card">
+        <h4>💡 What This Means</h4>
+        <p id="resWhatMeansText" style="font-size:14px;color:var(--text-main);line-height:1.6;">
+          Screening results summarize speech accuracy, pauses, motor control, and letter-form consistency relative to developmental age ranges.
+        </p>
+      </div>
+
+      <div class="explain-card">
+        <h4>📋 Suggested Next Steps</h4>
+        <ul class="bullet-list" id="resNextStepsList">
+          <li>Continue age-appropriate reading and writing practice.</li>
+          <li>Consult a teacher or qualified educational psychologist if classroom difficulties persist.</li>
+        </ul>
+      </div>
+
+      <div style="text-align:center;margin:28px 0;">
+        <button class="btn btn-outline" onclick="navigateToView('dashboard')">← Return to Dashboard</button>
+      </div>
+    </main>
+
+    <!-- VIEW: FULL HISTORY -->
+    <main class="page-view" id="view-history">
+      <div class="page-header">
+        <h1 class="page-title">Assessment History &amp; Audit Trail</h1>
+        <p class="page-subtitle">Track longitudinal progress across repeated sessions for the selected child.</p>
+      </div>
+      <div id="fullHistoryContainer"></div>
+    </main>
+
+    <!-- VIEW: ABOUT & ETHICS -->
+    <main class="page-view" id="view-about">
+      <div class="page-header">
+        <h1 class="page-title">About the Screening System &amp; Ethical Framework</h1>
+        <p class="page-subtitle">Understanding the engineering methodology, age-adapted difficulty, and non-clinical guidelines.</p>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h3>System Purpose &amp; Ethical Safeguards</h3>
+        <p>This software is developed as an intelligent educational screening aid designed to detect early observable indicators of Dyslexia and Dysgraphia in children aged 5 to 12. It provides structured, explainable indicators for educators and parents. It is <strong>NOT</strong> a clinical diagnostic system.</p>
+        <div class="disclaimer-banner">
+          <span>⚖️</span>
+          <div><strong>Core Ethical Rule:</strong> The system never declares "Dyslexia detected" or "Dysgraphia confirmed." It returns "Screening result" and "Observed indicators."</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px;">
+        <h3>Age-Adaptive Architecture (Ages 5–12)</h3>
+        <p>The system organizes assessments into 4 distinct difficulty tiers that adapt automatically based on the child's recorded age:</p>
+        <ul class="bullet-list">
+          <li><strong>Beginner (Ages 5–6):</strong> Single letter confusion pairs (b/d, p/q), 3-letter CVC sight words, 5-word sentences, and simple uppercase/lowercase handwriting.</li>
+          <li><strong>Elementary (Ages 7–8):</strong> Common sight vocabulary, rhyming and compound sentences, basic word copying.</li>
+          <li><strong>Intermediate (Ages 9–10):</strong> Multi-syllable vocabulary, multi-clause oral reading, sound segmentation, spatial paragraph handwriting.</li>
+          <li><strong>Advanced (Ages 11–12):</strong> Complex vocabulary, paragraph comprehension, morphology, cursive/print consistency.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h3>AI &amp; Computer Vision Methodology</h3>
+        <ul class="bullet-list">
+          <li><strong>Speech Recognition &amp; Alignment:</strong> Browser Web Speech API captures real-time spoken audio without storing raw voice recordings. Dynamic programming word-level alignment calculates substitutions, omissions, insertions, repetitions, and hesitation pauses.</li>
+          <li><strong>Computer Vision Handwriting Analysis:</strong> OpenCV processes canvas ink density, contour count, and scale/rotation invariant Hu moments to measure character structure and detect letter-form mismatches (e.g. b/d loop reversal).</li>
+          <li><strong>Kinematic Stroke Analysis:</strong> High-frequency pointer events capture velocity profiles, pen lifts, and stroke smoothness.</li>
+        </ul>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- MODAL: NEW CHILD PROFILE -->
+<div class="modal-overlay" id="profileModal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 style="font-size:20px;">Add New Child Profile</h3>
+      <button class="btn-close" id="closeProfileModal">&times;</button>
+    </div>
+    <form id="newProfileForm">
+      <div style="margin-bottom:16px;">
+        <label style="display:block;font-size:13px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">Child Name</label>
+        <input type="text" id="inputChildName" placeholder="e.g. Aarav Sharma" required style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;">
+      </div>
+      <div style="margin-bottom:24px;">
+        <label style="display:block;font-size:13px;font-weight:600;color:var(--text-muted);margin-bottom:6px;">Age (5 to 12 years)</label>
+        <input type="number" id="inputChildAge" min="5" max="12" value="8" required style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:14px;outline:none;">
+        <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Difficulty tier will be automatically calculated.</div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;">
+        <button type="button" class="btn btn-outline" onclick="closeProfileModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Profile</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- TOAST NOTIFICATION -->
+<div class="toast-notice" id="toastNotice"></div>
+
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: smart-ld-detection
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.8
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      - key: STORE_RAW_AUDIO
+        value: "false"

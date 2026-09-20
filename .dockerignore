@@ -1,0 +1,38 @@
+# Git & Version Control
+.git
+.gitignore
+
+# Python cache & compiled
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv
+.venv
+env
+ENV
+
+# Testing & logs
+.pytest_cache
+*.log
+tests/
+
+# Archives & raw dataset images
+*.rar
+*.zip
+*.tar.gz
+backend/data/archive
+downloads/
+
+# Local databases
+backend/*.db
+ld_detection.db
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode
+.idea

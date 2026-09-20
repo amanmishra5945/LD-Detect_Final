@@ -18,7 +18,7 @@ BACKEND_DIR = Path(__file__).resolve().parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from fastapi import FastAPI, Depends, HTTPException, Query, Response
+from fastapi import FastAPI, Depends, HTTPException, Query, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -64,14 +64,6 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_cors_headers(request: Request, call_next):
-    if request.method == "OPTIONS":
-        from fastapi.responses import Response
-        res = Response(status_code=200)
-        res.headers["Access-Control-Allow-Origin"] = "*"
-        res.headers["Access-Control-Allow-Methods"] = "*"
-        res.headers["Access-Control-Allow-Headers"] = "*"
-        res.headers["Access-Control-Allow-Private-Network"] = "true"
-        return res
     response = await call_next(request)
     response.headers["Access-Control-Allow-Private-Network"] = "true"
     return response

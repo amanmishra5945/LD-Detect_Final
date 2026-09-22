@@ -503,3 +503,94 @@ def test_dysgraphia_target_matching_and_scribble_detection():
     obs_text = " ".join(d_rv["explainable_report"]["what_we_observed"])
     assert "reversal" in obs_text.lower()
 
+
+def test_dysgraphia_transparent_rgba_and_natural_writing():
+    import io
+    import base64
+    import cv2
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    u_res = client.post("/api/users", json={"name": "Canvas Fidelity Child", "age": 7})
+    uid = u_res.json()["id"]
+
+    def make_transparent_rgba_b64(draw_fn):
+        # Simulate browser canvas: RGBA transparent (0,0,0,0) with #0F172A ink
+        img = Image.new("RGBA", (760, 320), (0, 0, 0, 0))
+        draw_fn(img)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    def draw_transparent_b(img):
+        draw = ImageDraw.Draw(img)
+        # Vertical stem
+        draw.line([(100, 80), (100, 240)], fill=(15, 23, 42, 255), width=4)
+        # Lower loop on right side
+        draw.arc([(100, 160), (180, 240)], start=270, end=90, fill=(15, 23, 42, 255), width=4)
+
+    def draw_transparent_spaced_cat(img):
+        # Natural handwriting where letters c, a, t have space between them
+        arr = np.array(img)
+        cv2.putText(arr, "c", (100, 180), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (15, 23, 42, 255), 3, cv2.LINE_AA)
+        cv2.putText(arr, "a", (220, 180), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (15, 23, 42, 255), 3, cv2.LINE_AA)
+        cv2.putText(arr, "t", (340, 180), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (15, 23, 42, 255), 3, cv2.LINE_AA)
+        return Image.fromarray(arr)
+
+    def make_arr_b64(arr_img):
+        buf = io.BytesIO()
+        arr_img.save(buf, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("utf-8")
+
+    # Spaced cat image in transparent RGBA
+    empty_rgba = Image.new("RGBA", (760, 320), (0, 0, 0, 0))
+    cat_img = draw_transparent_spaced_cat(empty_rgba)
+    b64_cat = make_arr_b64(cat_img)
+
+    # Uppercase SUN in transparent RGBA
+    empty_rgba2 = Image.new("RGBA", (760, 320), (0, 0, 0, 0))
+    arr2 = np.array(empty_rgba2)
+    cv2.putText(arr2, "SUN", (120, 180), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (15, 23, 42, 255), 3, cv2.LINE_AA)
+    sun_img = Image.fromarray(arr2)
+    b64_sun = make_arr_b64(sun_img)
+
+    # Stroke coordinates test (without image_base64)
+    stroke_cat = [
+        [{"x": 100, "y": 150, "t": 0.0}, {"x": 80, "y": 180, "t": 0.2}, {"x": 120, "y": 200, "t": 0.4}],
+        [{"x": 150, "y": 170, "t": 0.6}, {"x": 170, "y": 170, "t": 0.8}],
+        [{"x": 200, "y": 140, "t": 1.0}, {"x": 200, "y": 200, "t": 1.2}],
+    ]
+
+    payload = {
+        "user_id": uid,
+        "age": 7,
+        "device_type": "stylus",
+        "task_results": [
+            {"target": "b", "strokes": [], "duration_sec": 3.0, "corrections": 0, "image_base64": make_transparent_rgba_b64(draw_transparent_b), "canvas_width": 760, "canvas_height": 320},
+            {"target": "cat", "strokes": [], "duration_sec": 4.0, "corrections": 0, "image_base64": b64_cat, "canvas_width": 760, "canvas_height": 320},
+            {"target": "sun", "strokes": [], "duration_sec": 4.0, "corrections": 0, "image_base64": b64_sun, "canvas_width": 760, "canvas_height": 320},
+            {"target": "tree", "strokes": stroke_cat, "duration_sec": 4.0, "corrections": 0, "image_base64": None, "canvas_width": 760, "canvas_height": 320},
+        ]
+    }
+
+    res = client.post("/api/dysgraphia/session/submit", json=payload)
+    assert res.status_code == 200
+    data = res.json()
+
+    # The transparent canvas images must NOT be reported as "blank or insufficient ink"
+    for task_res in data["per_task_results"]:
+        ver = task_res["verification"]
+        for r in ver.get("reasons", []):
+            assert "insufficient ink" not in r.lower()
+
+    # Targets 'b', 'cat', and 'sun' must be matched successfully
+    res_b = data["per_task_results"][0]["verification"]
+    assert res_b["is_matched"] is True, f"b was not matched: {res_b}"
+
+    res_cat = data["per_task_results"][1]["verification"]
+    assert res_cat["is_matched"] is True, f"Spaced cat was not matched: {res_cat}"
+
+    res_sun = data["per_task_results"][2]["verification"]
+    assert res_sun["is_matched"] is True, f"Uppercase SUN was not matched: {res_sun}"
+
+

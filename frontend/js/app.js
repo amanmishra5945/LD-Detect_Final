@@ -1740,7 +1740,7 @@ function setupCanvas() {
   canvas.addEventListener("pointercancel", onCanvasPointerUp);
 
   const clearBtn = document.getElementById("btnClearCanvas");
-  if (clearBtn) clearBtn.addEventListener("click", clearCanvas);
+  if (clearBtn) clearBtn.addEventListener("click", () => clearCanvas(true));
 
   const nextBtn = document.getElementById("btnNextDysgTask");
   if (nextBtn) nextBtn.addEventListener("click", advanceDysgraphiaTask);
@@ -1749,6 +1749,8 @@ function setupCanvas() {
     resizeCanvas();
     redrawCanvas();
   });
+
+  resizeCanvas();
 }
 
 function resizeCanvas() {
@@ -1758,6 +1760,9 @@ function resizeCanvas() {
   canvas.width = rect.width * dpr;
   canvas.height = 320 * dpr;
   ctx.scale(dpr, dpr);
+  // Ensure solid white background (avoids transparent PNG issues)
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(0, 0, rect.width, 320);
   ctx.lineWidth = 3.0;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -1811,17 +1816,23 @@ function onCanvasPointerUp(e) {
   currentStroke = null;
 }
 
-function clearCanvas() {
+function clearCanvas(isUserAction = true) {
   if (!canvas || !ctx) return;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const rect = canvas.getBoundingClientRect();
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(0, 0, rect.width, 320);
   strokes = [];
   taskStartTime = null;
-  correctionCount++;
+  if (isUserAction) {
+    correctionCount++;
+  }
 }
 
 function redrawCanvas() {
   if (!ctx || !canvas) return;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const rect = canvas.getBoundingClientRect();
+  ctx.fillStyle = "#FFFFFF";
+  ctx.fillRect(0, 0, rect.width, 320);
   strokes.forEach(s => {
     ctx.beginPath();
     s.forEach((p, i) => {
@@ -1867,7 +1878,7 @@ function renderDysgraphiaCurrentTask() {
   document.getElementById("dysgTargetDisplay").textContent = task.target;
   document.getElementById("dysgInstruction").textContent = task.instruction;
 
-  clearCanvas();
+  clearCanvas(false);
   correctionCount = 0;
   taskStartTime = null;
 

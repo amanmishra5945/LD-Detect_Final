@@ -326,19 +326,26 @@ def evaluate_dysgraphia_session(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         components["vision_classification"] = 0
 
-    screening_score = int(min(sum(components.values()), 100))
-
-    if screening_score < 20:
+    # Classification directly calibrated by written text match fidelity:
+    # >= 60%: Normal
+    # 50% - 60%: Mild
+    # 40% - 50%: Moderate
+    # < 40%: Severe
+    if avg_target_accuracy >= 60.0:
         predicted_label = "Normal"
-    elif screening_score < 42:
+        screening_score = int(np.clip(100.0 - avg_target_accuracy, 0, 19))
+    elif avg_target_accuracy >= 50.0:
         predicted_label = "Mild"
-    elif screening_score < 68:
+        screening_score = int(np.clip(20.0 + (60.0 - avg_target_accuracy) * 2.0, 20, 39))
+    elif avg_target_accuracy >= 40.0:
         predicted_label = "Moderate"
+        screening_score = int(np.clip(42.0 + (50.0 - avg_target_accuracy) * 2.5, 42, 67))
     else:
         predicted_label = "Severe"
+        screening_score = int(np.clip(68.0 + (40.0 - avg_target_accuracy) * 0.8, 68, 100))
 
-    centers = {"Normal": 8, "Mild": 29, "Moderate": 52, "Severe": 78}
-    weights = {name: float(np.exp(-abs(screening_score - center) / 10.0)) for name, center in centers.items()}
+    centers = {"Normal": 85.0, "Mild": 55.0, "Moderate": 45.0, "Severe": 25.0}
+    weights = {name: float(np.exp(-abs(avg_target_accuracy - center) / 10.0)) for name, center in centers.items()}
     w_sum = sum(weights.values())
     probabilities = {name: round(weights[name] / w_sum, 4) for name in SEVERITY_ORDER}
     confidence = probabilities[predicted_label]

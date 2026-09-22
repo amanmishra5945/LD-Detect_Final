@@ -536,7 +536,7 @@ def verify_handwritten_target(
         raw_match *= 0.50
 
     accuracy_pct = int(np.clip(round(raw_match * 100), 5, 98))
-    is_matched = (accuracy_pct >= 55) and not has_reversal
+    is_matched = (accuracy_pct >= 60) and not has_reversal
 
     reasons = []
     if has_reversal:

@@ -594,3 +594,77 @@ def test_dysgraphia_transparent_rgba_and_natural_writing():
     assert res_sun["is_matched"] is True, f"Uppercase SUN was not matched: {res_sun}"
 
 
+def test_dysgraphia_severity_thresholds():
+    from services.dysgraphia_service import evaluate_dysgraphia_session
+
+    u_res = client.post("/api/users", json={"name": "Thresholds Child", "age": 8})
+    uid = u_res.json()["id"]
+
+    def make_mock_payload(mock_accuracy):
+        # Generate dummy task results that return the specified mock_accuracy
+        import cv2, numpy as np, base64
+        img = np.zeros((340, 800), dtype=np.uint8)
+        if mock_accuracy >= 60:
+            cv2.putText(img, "cat", (80, 200), cv2.FONT_HERSHEY_SIMPLEX, 1.2, 255, 3)
+        elif mock_accuracy < 40:
+            cv2.line(img, (100, 170), (700, 170), 255, 3)
+        _, buf = cv2.imencode(".png", img)
+        b64 = "data:image/png;base64," + base64.b64encode(buf).decode("utf-8")
+        return {
+            "session_id": None,
+            "user_id": uid,
+            "age": 8,
+            "device_type": "stylus",
+            "task_results": [
+                {"target": "cat", "strokes": [], "duration_sec": 4.0, "corrections": 0, "image_base64": b64, "canvas_width": 800, "canvas_height": 340}
+            ]
+        }
+
+    # Severe case (< 40%)
+    res_sev = client.post("/api/dysgraphia/session/submit", json=make_mock_payload(15))
+    d_sev = res_sev.json()
+    assert d_sev["target_accuracy_pct"] < 40.0
+    assert d_sev["prediction"] == "Severe"
+
+    # Normal case (> 60%)
+    res_norm = client.post("/api/dysgraphia/session/submit", json=make_mock_payload(90))
+    d_norm = res_norm.json()
+    assert d_norm["target_accuracy_pct"] >= 60.0
+    assert d_norm["prediction"] == "Normal"
+
+    # Direct validation of all four brackets via evaluate_dysgraphia_session
+    from unittest.mock import patch
+    cases = [
+        (70.0, "Normal"),
+        (60.0, "Normal"),
+        (55.0, "Mild"),
+        (50.0, "Mild"),
+        (45.0, "Moderate"),
+        (40.0, "Moderate"),
+        (35.0, "Severe"),
+        (10.0, "Severe"),
+    ]
+    for acc, expected_label in cases:
+        mock_ev = {
+            "target": "cat",
+            "metrics": {
+                "stroke_count": 3, "pen_lifts": 2, "duration_sec": 4.0, "writing_speed_cps": 0.8,
+                "stroke_smoothness": 0.8, "speed_irregularity": 0.2, "median_speed": 20.0,
+                "letter_size_cv": 0.3, "spacing_cv": 0.3, "baseline_deviation": 0.02,
+                "meaningful_pauses": 0, "long_pauses": 0, "mean_pause_sec": 0.0,
+                "ink_density": 0.01, "num_contours": 3, "corrections": 0
+            },
+            "cv_features": {"fill_density": 0.01, "contour_count": 3, "hu_moments": [0.0]*4},
+            "visual_similarity": acc / 100.0,
+            "verification": {"is_matched": acc >= 60.0, "accuracy_pct": acc, "has_reversal": False, "reasons": []},
+            "letter_form_flag": None,
+            "char_classification": None,
+            "observations": []
+        }
+        with patch("services.dysgraphia_service.analyze_handwriting_task", return_value=mock_ev):
+            res_eval = evaluate_dysgraphia_session({"user_id": uid, "age": 8, "task_results": [{"target": "cat"}]})
+            assert res_eval["prediction"] == expected_label, f"For {acc}%, expected {expected_label} but got {res_eval['prediction']}"
+
+
+
+

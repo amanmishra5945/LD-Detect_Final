@@ -24,7 +24,10 @@ def test_html_js_ids():
         'liveWordProgressText', 'liveWordComparisonGrid', 'singleWordCompCard',
         'swTargetText', 'swHeardText', 'swResultBadge', 'btnSpeechDemoStruggle',
         'btnDemoCorrectWord', 'btnDemoErrorWord', 'swModelExplanation',
-        'inputSingleWordManual', 'btnVerifySingleManual', 'inputManualSpoken', 'btnVerifyManualSpoken'
+        'inputSingleWordManual', 'btnVerifySingleManual', 'inputManualSpoken', 'btnVerifyManualSpoken',
+        'btnStartRapidTest', 'btnStopRapidTest', 'rapidTimerDisplay', 'rapidErrCountDisplay',
+        'btnRapidErrMinus', 'btnRapidErrPlus', 'rapidSpeedStatus', 'rapidSummaryCard',
+        'rapidSummaryDetails', 'btnDemoRapidTypical', 'btnDemoRapidSlow'
     }
 
     missing = ids_in_js - ids_in_html - dynamic_ids

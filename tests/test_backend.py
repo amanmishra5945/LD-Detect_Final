@@ -170,6 +170,31 @@ def test_dyslexia_session_flow():
     assert "Screening support only" in res_data["disclaimer"]
 
 
+def test_dyslexia_stage7_slow_rapid_naming_observation():
+    start_res = client.post("/api/dyslexia/session/start", json={"user_id": 1, "age": 8})
+    session_id = start_res.json()["session_id"]
+    submit_payload = {
+        "session_id": session_id,
+        "user_id": 1,
+        "age": 8,
+        "stages_data": {
+            "stage_1_letters": [{"target": "b", "correct": True, "reversal_error": False}],
+            "stage_2_words": [{"word": "cat", "correct": True, "reversal_error": False, "response_time_sec": 1.0}],
+            "stage_3_speech": {"expected_text": "The cat runs.", "transcript": "The cat runs.", "duration_sec": 3.0, "pauses": [], "confidence": 0.9},
+            "stage_4_phono": [{"correct": True}],
+            "stage_5_spelling": [{"target": "tree", "correct": True}],
+            "stage_6_comp": {"correct": True},
+            "stage_7_rapid_naming": {"total_time_sec": 16.5, "errors": 2}
+        },
+        "confidence_score": 0.9
+    }
+    sub_res = client.post("/api/dyslexia/session/submit", json=submit_payload)
+    assert sub_res.status_code == 200
+    res_data = sub_res.json()
+    observations = res_data["explainable_report"]["what_we_observed"]
+    assert any("Rapid naming speed was notably slow" in obs for obs in observations)
+
+
 def test_handwriting_cv_task_analysis():
     # Simulate drawing the letter 'b' with strokes
     # Vertical line down + rounded loop
@@ -322,6 +347,42 @@ def test_automated_word_verification():
     d_sub = res_sub.json()
     assert d_sub["is_correct"] is False
     assert d_sub["status"] == "substitution"
+
+    # 5. Test single letter 'q' with phonetic transcript 'cue'
+    res_q_cue = client.post("/api/dyslexia/verify-word", json={
+        "target_word": "q",
+        "spoken_transcript": "cue",
+        "age": 8,
+        "response_time_sec": 0.8
+    })
+    assert res_q_cue.status_code == 200
+    d_q_cue = res_q_cue.json()
+    assert d_q_cue["is_correct"] is True
+    assert d_q_cue["status"] == "correct"
+    assert d_q_cue["reversal_detected"] is False
+
+    # 6. Test single letter 'q' with transcript 'queue'
+    res_q_queue = client.post("/api/dyslexia/verify-word", json={
+        "target_word": "q",
+        "spoken_transcript": "queue",
+        "age": 8,
+        "response_time_sec": 0.9
+    })
+    assert res_q_queue.status_code == 200
+    assert res_q_queue.json()["is_correct"] is True
+
+    # 7. Test single letter 'q' confused with 'p' (spoken 'pee')
+    res_q_p = client.post("/api/dyslexia/verify-word", json={
+        "target_word": "q",
+        "spoken_transcript": "pee",
+        "age": 8,
+        "response_time_sec": 1.4
+    })
+    assert res_q_p.status_code == 200
+    d_q_p = res_q_p.json()
+    assert d_q_p["is_correct"] is False
+    assert d_q_p["reversal_detected"] is True
+    assert "reversal" in d_q_p["status"]
 
 
 def test_indian_accent_speech_alignment():

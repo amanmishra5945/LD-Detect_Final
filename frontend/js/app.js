@@ -435,6 +435,53 @@ function renderDyslexiaCurrentStage() {
   }
 }
 
+// Comprehensive phonetic & spoken variants for letters (eliminates recognition delay for 'q', 'p', etc.)
+const LETTER_SPOKEN_MAP = {
+  a: ["a", "ay", "ai", "ei", "ah", "eh"],
+  b: ["b", "bee", "be", "bea", "buh", "ba"],
+  c: ["c", "see", "sea", "si", "kuh", "ka"],
+  d: ["d", "dee", "de", "duh", "da"],
+  e: ["e", "ee", "ea"],
+  f: ["f", "ef", "eff", "fuh"],
+  g: ["g", "gee", "jee", "guh", "ga"],
+  h: ["h", "aitch", "eich", "hech", "haitch", "huh"],
+  i: ["i", "eye", "aye", "ai", "ih"],
+  j: ["j", "jay", "je"],
+  k: ["k", "kay", "ke", "kuh"],
+  l: ["l", "el", "ell", "luh"],
+  m: ["m", "em", "emm", "muh"],
+  n: ["n", "en", "enn", "nuh"],
+  o: ["o", "oh", "owe"],
+  p: ["p", "pee", "pea", "pi", "puh", "pa"],
+  q: ["q", "cue", "queue", "que", "kyu", "kew", "kwa", "qu", "cu", "k", "ku", "koo", "cute"],
+  r: ["r", "ar", "are", "arr", "ruh"],
+  s: ["s", "es", "ess", "suh"],
+  t: ["t", "tee", "tea", "ti", "tuh"],
+  u: ["u", "you", "yu", "uh", "oo"],
+  v: ["v", "vee", "ve", "vuh", "we"],
+  w: ["w", "double u", "double-u", "doubleyou", "wuh"],
+  x: ["x", "ex", "ecs", "eks"],
+  y: ["y", "why", "wai", "yuh"],
+  z: ["z", "zed", "zee", "zi", "zuh"]
+};
+
+function matchesLetterVariants(spoken, letter) {
+  if (!spoken || !letter) return false;
+  spoken = spoken.toLowerCase().trim().replace(/[^a-z0-9 ]/g, "");
+  letter = letter.toLowerCase().trim();
+  if (spoken === letter) return true;
+  
+  const tokens = spoken.split(/\s+/).filter(Boolean);
+  const variants = LETTER_SPOKEN_MAP[letter] || [letter];
+  for (const v of variants) {
+    if (spoken === v || tokens.includes(v)) return true;
+    if (v.length >= 2 && spoken.includes(v)) return true;
+  }
+  // Check first token initial
+  if (tokens.length > 0 && tokens[0].charAt(0) === letter) return true;
+  return false;
+}
+
 // Stage 1: Letter Recognition with Mic & Sound-Out Evaluation
 function renderStageLetterRecognition(container, stage) {
   container.innerHTML = `
@@ -498,7 +545,7 @@ function renderStageLetterRecognition(container, stage) {
     });
   });
 
-  // Microphone listener for each individual letter with automated AI verification
+  // Microphone listener for each individual letter with instantaneous zero-delay resolution
   list.querySelectorAll(".btn-mic-letter").forEach(btn => {
     btn.addEventListener("click", async (e) => {
       const idx = parseInt(e.target.getAttribute("data-idx"));
@@ -519,65 +566,99 @@ function renderStageLetterRecognition(container, stage) {
         rec.interimResults = true;
         rec.maxAlternatives = 3;
 
+        let isCompleted = false;
+
         rec.onstart = () => {
           btn.disabled = true;
           btn.textContent = "🎙 Listening…";
           if (statusSpan) statusSpan.innerHTML = `<span style="color:#2563EB; font-weight:700;">● LISTENING… Say "${targetChar}" now!</span>`;
         };
 
+        const handleResolution = (spoken, isCorrect, label, isReversal) => {
+          if (isCompleted) return;
+          isCompleted = true;
+          try { rec.stop(); } catch (err) {}
+
+          if (isCorrect) {
+            btnCor.click();
+            if (statusSpan) statusSpan.innerHTML = `Heard: "<strong>${spoken}</strong>" <span style="color:#15803D;">✓ AI Verified Correct</span>`;
+          } else if (isReversal) {
+            btnConf.click();
+            if (statusSpan) statusSpan.innerHTML = `Heard: "<strong>${spoken}</strong>" <span style="color:#B91C1C;">✗ Flagged Confusion (${confChar})</span>`;
+          } else {
+            btnConf.click();
+            if (statusSpan) statusSpan.innerHTML = `Heard: "<strong>${spoken}</strong>" <span style="color:#B91C1C;">✗ ${label || "Error"}</span>`;
+          }
+          btn.disabled = false;
+          btn.textContent = "🎙 Speak";
+        };
+
         rec.onresult = async (evt) => {
+          if (isCompleted) return;
           let spoken = "";
           for (let i = 0; i < evt.results.length; i++) {
             spoken += evt.results[i][0].transcript + " ";
           }
           spoken = spoken.trim().toLowerCase();
-          const spokenFirst = spoken.charAt(0);
+          if (!spoken) return;
 
-          if (statusSpan) statusSpan.textContent = `Analyzing: "${spoken}"…`;
+          if (statusSpan && !isCompleted) statusSpan.textContent = `Analyzing: "${spoken}"…`;
 
-          // Automated AI model verification
-          try {
-            const vRes = await fetch(`${API_BASE}/api/dyslexia/verify-word`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                target_word: targetChar,
-                spoken_transcript: spoken,
-                age: currentChild ? currentChild.age : 8,
-                response_time_sec: 1.0,
-                speech_confidence: evt.results[0][0].confidence || 0.85,
-                accent: getSelectedAccent()
-              })
-            });
-            if (vRes.ok) {
-              const vData = await vRes.json();
-              if (vData.is_correct || spoken.includes(targetChar) || spokenFirst === targetChar) {
-                btnCor.click();
-                if (statusSpan) statusSpan.innerHTML = `Heard: "<strong>${spoken}</strong>" <span style="color:#15803D;">✓ AI Verified Correct</span>`;
-              } else if (vData.reversal_detected || spoken.includes(confChar) || spokenFirst === confChar) {
-                btnConf.click();
-                if (statusSpan) statusSpan.innerHTML = `Heard: "<strong>${spoken}</strong>" <span style="color:#B91C1C;">✗ AI Flagged Confusion (${confChar})</span>`;
-              } else {
-                btnConf.click();
-                if (statusSpan) statusSpan.innerHTML = `Heard: "<strong>${spoken}</strong>" <span style="color:#B91C1C;">✗ Error</span>`;
+          // 1. Instant zero-delay client phonetic check (especially for 'q' -> "cue", "queue", "kyu")
+          if (matchesLetterVariants(spoken, targetChar)) {
+            handleResolution(spoken, true, "Correct", false);
+            return;
+          }
+
+          if (matchesLetterVariants(spoken, confChar)) {
+            handleResolution(spoken, false, `Confused with ${confChar}`, true);
+            return;
+          }
+
+          // 2. If browser marked result as final or we have multiple tokens, verify with backend
+          const isFinal = evt.results[evt.results.length - 1].isFinal;
+          if (isFinal && !isCompleted) {
+            try {
+              const vRes = await fetch(`${API_BASE}/api/dyslexia/verify-word`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  target_word: targetChar,
+                  spoken_transcript: spoken,
+                  age: currentChild ? currentChild.age : 8,
+                  response_time_sec: 1.0,
+                  speech_confidence: evt.results[0][0].confidence || 0.85,
+                  accent: getSelectedAccent()
+                })
+              });
+              if (vRes.ok) {
+                const vData = await vRes.json();
+                if (vData.is_correct || matchesLetterVariants(spoken, targetChar)) {
+                  handleResolution(spoken, true, "AI Verified Correct", false);
+                  return;
+                } else if (vData.reversal_detected || matchesLetterVariants(spoken, confChar)) {
+                  handleResolution(spoken, false, `AI Flagged Confusion (${confChar})`, true);
+                  return;
+                } else {
+                  handleResolution(spoken, false, "Error", false);
+                  return;
+                }
               }
-              return;
-            }
-          } catch (e) {}
+            } catch (e) {}
 
-          // Local fallback
-          if (spoken.includes(targetChar) || spokenFirst === targetChar) {
-            btnCor.click();
-            if (statusSpan) statusSpan.innerHTML = `Heard: "<strong>${spoken}</strong>" <span style="color:#15803D;">✓ Correct</span>`;
-          } else if (spoken.includes(confChar) || spokenFirst === confChar) {
-            btnConf.click();
-            if (statusSpan) statusSpan.innerHTML = `Heard: "<strong>${spoken}</strong>" <span style="color:#B91C1C;">✗ Confused with ${confChar}</span>`;
-          } else {
-            if (statusSpan) statusSpan.innerHTML = `Heard: "${spoken}"`;
+            // Local fallback on final
+            if (matchesLetterVariants(spoken, targetChar)) {
+              handleResolution(spoken, true, "Correct", false);
+            } else if (matchesLetterVariants(spoken, confChar)) {
+              handleResolution(spoken, false, `Confused with ${confChar}`, true);
+            } else {
+              handleResolution(spoken, false, "Error", false);
+            }
           }
         };
 
         rec.onerror = (err) => {
+          if (isCompleted) return;
           if (err.error === "not-allowed") {
             if (statusSpan) statusSpan.textContent = "Mic permission blocked in browser. Click Allow in address bar.";
           } else if (err.error === "no-speech") {
@@ -1169,27 +1250,287 @@ function renderStageComprehension(container, stage) {
   });
 }
 
-// Stage 7: Rapid Naming (RAN)
+// Stage 7: Rapid Naming (RAN / Rapid Reading Test)
 function renderStageRapidNaming(container, stage) {
+  let rapidRunning = false;
+  let rapidStartTime = 0;
+  let rapidTimerInterval = null;
+  let rapidElapsedSec = 8.0;
+  let rapidErrors = 0;
+  let hasTested = false;
+  const itemCount = stage.items ? stage.items.length : 6;
+
   container.innerHTML = `
     <div class="task-prompt-box">
-      <div class="task-label">Stage 7: Rapid Naming (Speed & Fluency)</div>
-      <div class="task-target">Name these items as fast as you can</div>
-      <p style="color:var(--text-muted);font-size:14px;margin-top:6px;">Click Start, let the child name all items left-to-right, then click Finish.</p>
+      <div class="task-label">Stage 7: Rapid Reading &amp; Rapid Naming (RAN)</div>
+      <div class="task-target">Name each item aloud as fast and accurately as possible</div>
+      <p style="color:var(--text-muted);font-size:14px;margin-top:6px;">
+        Click <strong>"▶ Start Rapid Reading Test"</strong>, have the child read all items from left to right, then click <strong>"⏹ Stop / Record Time"</strong>.
+      </p>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:16px;justify-content:center;margin-bottom:28px;">
-      ${stage.items.map(it => `
-        <div style="padding:16px 24px;border:2px solid var(--border);border-radius:var(--radius-md);background:#FFFFFF;font-size:28px;font-weight:700;font-family:'Outfit';">
+
+    <!-- Rapid Test Interactive Control Bar -->
+    <div style="background:var(--surface,#FFFFFF);border:1.5px solid var(--border,#E2E8F0);border-radius:var(--radius-md,12px);padding:18px 24px;margin-bottom:24px;box-shadow:var(--shadow-sm,0 1px 3px rgba(0,0,0,0.05));">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <button class="btn btn-primary btn-lg" id="btnStartRapidTest" style="font-weight:700;display:inline-flex;align-items:center;gap:8px;">
+            <span>▶</span> Start Rapid Reading Test
+          </button>
+          <button class="btn btn-outline btn-lg" id="btnStopRapidTest" disabled style="font-weight:700;display:inline-flex;align-items:center;gap:8px;">
+            <span>⏹</span> Stop / Record Time
+          </button>
+        </div>
+
+        <!-- Stopwatch & Error Controls -->
+        <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;">
+          <div style="text-align:center;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);letter-spacing:0.05em;">Elapsed Time</div>
+            <div id="rapidTimerDisplay" style="font-size:26px;font-weight:800;font-family:'IBM Plex Mono',monospace;color:var(--primary,#2563EB);min-width:80px;">0.0s</div>
+          </div>
+          <div style="height:36px;width:1px;background:var(--border,#CBD5E1);"></div>
+          <div style="text-align:center;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);letter-spacing:0.05em;">Error Count</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
+              <button class="btn btn-outline btn-sm" id="btnRapidErrMinus" style="padding:2px 8px;min-width:28px;">−</button>
+              <span id="rapidErrCountDisplay" style="font-size:18px;font-weight:700;min-width:24px;text-align:center;">0</span>
+              <button class="btn btn-outline btn-sm" id="btnRapidErrPlus" style="padding:2px 8px;min-width:28px;">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Demo Presets -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding-top:12px;border-top:1px dashed var(--border,#E2E8F0);flex-wrap:wrap;gap:10px;">
+        <div id="rapidSpeedStatus" style="font-size:13px;font-weight:600;color:var(--text-muted);">
+          Ready to begin. Click "Start Rapid Reading Test" when child is ready.
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span style="font-size:12px;color:var(--text-muted);">Quick Presets:</span>
+          <button class="btn btn-outline btn-sm" id="btnDemoRapidTypical" style="font-size:12px;padding:4px 10px;">⚡ Demo Typical (7.2s)</button>
+          <button class="btn btn-outline btn-sm" id="btnDemoRapidSlow" style="font-size:12px;padding:4px 10px;">⏱ Demo Hesitant (16.5s)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Visual Rapid Naming Items Grid -->
+    <div id="rapidItemsGrid" style="display:flex;flex-wrap:wrap;gap:16px;justify-content:center;margin-bottom:28px;">
+      ${stage.items.map((it, idx) => `
+        <div class="rapid-item-card" id="rapidItem_${idx}" style="position:relative;padding:18px 28px;border:2px solid var(--border,#E2E8F0);border-radius:var(--radius-md,12px);background:#FFFFFF;font-size:30px;font-weight:700;font-family:'Outfit',sans-serif;min-width:92px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.04);transition:all 0.2s ease;">
+          <span style="position:absolute;top:4px;left:8px;font-size:11px;color:var(--text-muted);font-family:sans-serif;font-weight:600;">#${idx + 1}</span>
           ${it.item}
         </div>
       `).join("")}
     </div>
+
+    <!-- Live Performance Result Summary Card -->
+    <div id="rapidSummaryCard" style="display:none;background:#F0FDF4;border:1.5px solid #86EFAC;border-radius:var(--radius-md,12px);padding:16px 20px;margin-bottom:24px;text-align:center;">
+      <div id="rapidSummaryDetails" style="font-size:14px;color:#166534;font-weight:600;"></div>
+    </div>
+
     <div style="display:flex;justify-content:center;gap:14px;">
       <button class="btn btn-brand btn-lg" id="btnFinishDyslexia">Finish Screening &amp; View Results →</button>
     </div>
   `;
 
-  document.getElementById("btnFinishDyslexia").addEventListener("click", finalizeDyslexiaSubmission);
+  const btnStart = document.getElementById("btnStartRapidTest");
+  const btnStop = document.getElementById("btnStopRapidTest");
+  const timerDisplay = document.getElementById("rapidTimerDisplay");
+  const errDisplay = document.getElementById("rapidErrCountDisplay");
+  const btnErrMinus = document.getElementById("btnRapidErrMinus");
+  const btnErrPlus = document.getElementById("btnRapidErrPlus");
+  const speedStatus = document.getElementById("rapidSpeedStatus");
+  const summaryCard = document.getElementById("rapidSummaryCard");
+  const summaryDetails = document.getElementById("rapidSummaryDetails");
+  const btnTypical = document.getElementById("btnDemoRapidTypical");
+  const btnSlow = document.getElementById("btnDemoRapidSlow");
+
+  function updateSummaryUI(duration, errors) {
+    if (!summaryCard || !summaryDetails) return;
+    summaryCard.style.display = "block";
+    const rate = duration > 0 ? (itemCount / duration).toFixed(1) : 0;
+    if (duration <= 10.0) {
+      summaryCard.style.background = "#F0FDF4";
+      summaryCard.style.borderColor = "#86EFAC";
+      summaryDetails.style.color = "#166534";
+      summaryDetails.innerHTML = `✓ <strong>Fast, Age-Appropriate Fluency:</strong> Completed ${itemCount} items in <strong>${duration.toFixed(1)}s</strong> (${rate} items/sec) with ${errors} error(s). Rapid retrieval indicators are typical.`;
+    } else if (duration <= 15.0) {
+      summaryCard.style.background = "#FEFCE8";
+      summaryCard.style.borderColor = "#FDE047";
+      summaryDetails.style.color = "#854D0E";
+      summaryDetails.innerHTML = `🟡 <strong>Moderate Latency:</strong> Completed ${itemCount} items in <strong>${duration.toFixed(1)}s</strong> (${rate} items/sec) with ${errors} error(s). Mild lexical retrieval latency observed.`;
+    } else {
+      summaryCard.style.background = "#FEF2F2";
+      summaryCard.style.borderColor = "#FCA5A5";
+      summaryDetails.style.color = "#991B1B";
+      summaryDetails.innerHTML = `⚠️ <strong>Notable Retrieval Hesitation:</strong> Took <strong>${duration.toFixed(1)}s</strong> (>15s) with ${errors} error(s). Significant latency in rapid automated naming.`;
+    }
+  }
+
+  function commitMetrics(duration, errors) {
+    hasTested = true;
+    dyslexiaCollectedData.stage_7_rapid_naming = {
+      total_time_sec: Math.max(1.0, parseFloat(duration.toFixed(1))),
+      errors: parseInt(errors) || 0
+    };
+  }
+
+  if (btnStart) {
+    btnStart.addEventListener("click", () => {
+      if (rapidRunning) return;
+      rapidRunning = true;
+      rapidStartTime = performance.now();
+      btnStart.disabled = true;
+      if (btnStop) {
+        btnStop.disabled = false;
+        btnStop.classList.remove("btn-outline");
+        btnStop.classList.add("btn-primary");
+      }
+      if (speedStatus) speedStatus.innerHTML = `<span style="color:#2563EB;font-weight:700;">● TEST RUNNING… Child is reading left-to-right! Click Stop when finished.</span>`;
+      if (summaryCard) summaryCard.style.display = "none";
+
+      // Reset items highlight
+      stage.items.forEach((_, idx) => {
+        const el = document.getElementById(`rapidItem_${idx}`);
+        if (el) {
+          el.style.borderColor = "var(--border,#E2E8F0)";
+          el.style.background = "#FFFFFF";
+        }
+      });
+
+      if (rapidTimerInterval) clearInterval(rapidTimerInterval);
+      rapidTimerInterval = setInterval(() => {
+        const cur = (performance.now() - rapidStartTime) / 1000;
+        rapidElapsedSec = cur;
+        if (timerDisplay) timerDisplay.textContent = `${cur.toFixed(1)}s`;
+
+        // Highlight active item approximation
+        const activeIdx = Math.min(itemCount - 1, Math.floor(cur / (12.0 / itemCount)));
+        stage.items.forEach((_, idx) => {
+          const el = document.getElementById(`rapidItem_${idx}`);
+          if (el) {
+            if (idx === activeIdx) {
+              el.style.borderColor = "var(--primary,#2563EB)";
+              el.style.background = "#EFF6FF";
+            } else {
+              el.style.borderColor = "var(--border,#E2E8F0)";
+              el.style.background = "#FFFFFF";
+            }
+          }
+        });
+      }, 50);
+    });
+  }
+
+  if (btnStop) {
+    btnStop.addEventListener("click", () => {
+      if (!rapidRunning) return;
+      rapidRunning = false;
+      if (rapidTimerInterval) clearInterval(rapidTimerInterval);
+      btnStop.disabled = true;
+      btnStop.classList.add("btn-outline");
+      btnStop.classList.remove("btn-primary");
+      if (btnStart) {
+        btnStart.disabled = false;
+        btnStart.textContent = "↺ Retake Test";
+      }
+      if (speedStatus) speedStatus.textContent = `Test recorded at ${rapidElapsedSec.toFixed(1)}s. You can adjust errors or proceed to view results.`;
+      
+      stage.items.forEach((_, idx) => {
+        const el = document.getElementById(`rapidItem_${idx}`);
+        if (el) {
+          el.style.borderColor = "var(--border,#E2E8F0)";
+          el.style.background = "#FFFFFF";
+        }
+      });
+
+      commitMetrics(rapidElapsedSec, rapidErrors);
+      updateSummaryUI(rapidElapsedSec, rapidErrors);
+    });
+  }
+
+  if (btnErrMinus) {
+    btnErrMinus.addEventListener("click", () => {
+      rapidErrors = Math.max(0, rapidErrors - 1);
+      if (errDisplay) errDisplay.textContent = rapidErrors;
+      commitMetrics(rapidElapsedSec, rapidErrors);
+      if (hasTested) updateSummaryUI(rapidElapsedSec, rapidErrors);
+    });
+  }
+
+  if (btnErrPlus) {
+    btnErrPlus.addEventListener("click", () => {
+      rapidErrors++;
+      if (errDisplay) errDisplay.textContent = rapidErrors;
+      commitMetrics(rapidElapsedSec, rapidErrors);
+      if (hasTested) updateSummaryUI(rapidElapsedSec, rapidErrors);
+    });
+  }
+
+  if (btnTypical) {
+    btnTypical.addEventListener("click", () => {
+      if (rapidRunning) {
+        rapidRunning = false;
+        if (rapidTimerInterval) clearInterval(rapidTimerInterval);
+      }
+      rapidElapsedSec = 7.2;
+      rapidErrors = 0;
+      if (timerDisplay) timerDisplay.textContent = "7.2s";
+      if (errDisplay) errDisplay.textContent = "0";
+      if (btnStart) {
+        btnStart.disabled = false;
+        btnStart.textContent = "↺ Retake Test";
+      }
+      if (btnStop) {
+        btnStop.disabled = true;
+        btnStop.classList.add("btn-outline");
+        btnStop.classList.remove("btn-primary");
+      }
+      if (speedStatus) speedStatus.textContent = "Preset applied: 7.2s typical naming speed.";
+      commitMetrics(rapidElapsedSec, rapidErrors);
+      updateSummaryUI(rapidElapsedSec, rapidErrors);
+      showToast("Loaded typical pace: 7.2s");
+    });
+  }
+
+  if (btnSlow) {
+    btnSlow.addEventListener("click", () => {
+      if (rapidRunning) {
+        rapidRunning = false;
+        if (rapidTimerInterval) clearInterval(rapidTimerInterval);
+      }
+      rapidElapsedSec = 16.5;
+      rapidErrors = 2;
+      if (timerDisplay) timerDisplay.textContent = "16.5s";
+      if (errDisplay) errDisplay.textContent = "2";
+      if (btnStart) {
+        btnStart.disabled = false;
+        btnStart.textContent = "↺ Retake Test";
+      }
+      if (btnStop) {
+        btnStop.disabled = true;
+        btnStop.classList.add("btn-outline");
+        btnStop.classList.remove("btn-primary");
+      }
+      if (speedStatus) speedStatus.textContent = "Preset applied: 16.5s hesitant naming speed (2 errors).";
+      commitMetrics(rapidElapsedSec, rapidErrors);
+      updateSummaryUI(rapidElapsedSec, rapidErrors);
+      showToast("Loaded hesitant pace: 16.5s (2 errors)");
+    });
+  }
+
+  const btnFinish = document.getElementById("btnFinishDyslexia");
+  if (btnFinish) {
+    btnFinish.addEventListener("click", () => {
+      if (rapidRunning) {
+        rapidRunning = false;
+        if (rapidTimerInterval) clearInterval(rapidTimerInterval);
+        commitMetrics(rapidElapsedSec, rapidErrors);
+      } else if (!hasTested) {
+        commitMetrics(rapidElapsedSec, rapidErrors);
+      }
+      finalizeDyslexiaSubmission();
+    });
+  }
 }
 
 function advanceDyslexiaStage() {

@@ -32,6 +32,36 @@ CONFUSABLE_LETTER_PAIRS = {
     ('u', 'v'), ('v', 'u'),
 }
 
+# Phonetic and spoken variants for alphabet letters (accommodates Web Speech API transcripts)
+LETTER_SPOKEN_VARIANTS = {
+    "a": {"a", "ay", "ai", "ei", "ah", "eh"},
+    "b": {"b", "bee", "be", "bea", "buh", "ba"},
+    "c": {"c", "see", "sea", "si", "kuh", "ka"},
+    "d": {"d", "dee", "de", "duh", "da"},
+    "e": {"e", "ee", "ea"},
+    "f": {"f", "ef", "eff", "fuh"},
+    "g": {"g", "gee", "jee", "guh", "ga"},
+    "h": {"h", "aitch", "eich", "hech", "haitch", "huh"},
+    "i": {"i", "eye", "aye", "ai", "ih"},
+    "j": {"j", "jay", "je"},
+    "k": {"k", "kay", "ke", "kuh"},
+    "l": {"l", "el", "ell", "luh"},
+    "m": {"m", "em", "emm", "muh"},
+    "n": {"n", "en", "enn", "nuh"},
+    "o": {"o", "oh", "owe"},
+    "p": {"p", "pee", "pea", "pi", "puh", "pa"},
+    "q": {"q", "cue", "queue", "que", "kyu", "kew", "kwa", "qu", "cu", "k", "ku", "koo", "cute"},
+    "r": {"r", "ar", "are", "arr", "ruh"},
+    "s": {"s", "es", "ess", "suh"},
+    "t": {"t", "tee", "tea", "ti", "tuh"},
+    "u": {"u", "you", "yu", "uh", "oo"},
+    "v": {"v", "vee", "ve", "vuh", "we"},
+    "w": {"w", "double u", "double-u", "doubleyou", "wuh"},
+    "x": {"x", "ex", "ecs", "eks"},
+    "y": {"y", "why", "wai", "yuh"},
+    "z": {"z", "zed", "zee", "zi", "zuh"}
+}
+
 # Indian English phonological / acoustic variants (dental stops, v/w merger, monophthongs)
 INDIAN_PHONETIC_EQUIVALENTS = {
     ("the", "de"), ("the", "da"), ("the", "dhe"), ("the", "thee"),
@@ -78,6 +108,14 @@ def check_potential_reversal(expected: str, recognized: str) -> Optional[str]:
     if (expected, recognized) in REVERSAL_WORD_PAIRS:
         return f"Word inversion: '{expected}' read as '{recognized}'"
     
+    # Check single letter reversal via phonetic variants (e.g. expected 'q' recognized as 'p' / 'pee')
+    if len(expected) == 1 and expected in LETTER_SPOKEN_VARIANTS:
+        for (c1, c2) in CONFUSABLE_LETTER_PAIRS:
+            if expected == c1:
+                c2_variants = LETTER_SPOKEN_VARIANTS.get(c2, {c2})
+                if recognized in c2_variants or any(v in recognized for v in c2_variants if len(v) >= 2):
+                    return f"Letter confusion: '{c1}' substituted with '{c2}'"
+
     if len(expected) == len(recognized) and len(expected) >= 2:
         diffs = [(e, r) for e, r in zip(expected, recognized) if e != r]
         if len(diffs) == 1 and diffs[0] in CONFUSABLE_LETTER_PAIRS:
@@ -406,7 +444,14 @@ def verify_spoken_word(
     t = normalize_token(target_word)
     s = normalize_token(spoken_word)
 
-    is_exact = (t == s)
+    # Check phonetic variants if target is a single letter (e.g. 'q' -> 'cue', 'queue', 'kew')
+    is_letter_phonetic = False
+    if len(t) == 1 and t in LETTER_SPOKEN_VARIANTS:
+        t_variants = LETTER_SPOKEN_VARIANTS[t]
+        if s in t_variants or any(v == s or (len(v) >= 2 and v in s) for v in t_variants):
+            is_letter_phonetic = True
+
+    is_exact = (t == s) or is_letter_phonetic
     is_contained = (t in s or s in t) if (len(s) >= 2 and len(t) >= 2) else False
     sim = SequenceMatcher(None, t, s).ratio() if (t and s) else 0.0
 
@@ -418,7 +463,7 @@ def verify_spoken_word(
         is_correct = True
         status = "correct"
         verdict_label = "Correct"
-        explanation = f"Word '{target_word}' was spoken accurately."
+        explanation = f"Letter '{target_word}' was spoken accurately." if len(t) == 1 else f"Word '{target_word}' was spoken accurately."
     elif rev_flag:
         is_correct = False
         status = "reversal_error"

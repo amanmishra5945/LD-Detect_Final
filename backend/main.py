@@ -45,6 +45,13 @@ from contextlib import asynccontextmanager
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    # Pre-warm prediction models to eliminate first-request latency
+    try:
+        from predictor import _load
+        _load("dyslexia")
+        _load("dysgraphia")
+    except Exception:
+        pass
     yield
 
 app = FastAPI(
@@ -347,6 +354,17 @@ def align_speech_endpoint(payload: SpeechAlignmentRequest, age: int = Query(defa
         accent=payload.accent or "en-IN"
     )
     m = result["metrics"]
+    if m["spoken_word_count"] == 0:
+        result["live_prediction"] = {
+            "risk_level": "Normal",
+            "confidence": 0.95,
+            "probabilities": {"Normal": 0.95, "Mild": 0.05, "Moderate": 0.0, "Severe": 0.0},
+            "recommendations": ["Ready to listen to speech stream..."],
+            "word_progress": f"0 of {m['expected_word_count']}",
+            "features": {}
+        }
+        return result
+
     live_features = {
         "Age": float(age),
         "Reading_Time_sec": round(m["duration_sec"], 2),

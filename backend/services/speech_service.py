@@ -11,6 +11,7 @@ Never claims clinical diagnosis — outputs objective screening indicators only.
 """
 import re
 from difflib import SequenceMatcher
+from functools import lru_cache
 from typing import List, Dict, Any, Optional, Tuple
 import numpy as np
 
@@ -90,6 +91,7 @@ INDIAN_PHONETIC_EQUIVALENTS = {
 }
 
 
+@lru_cache(maxsize=4096)
 def normalize_token(token: str) -> str:
     """Strip punctuation and lowercase for clean phonetic/lexical matching."""
     return re.sub(r"[^a-z0-9']", "", (token or "").lower().strip())
@@ -124,6 +126,7 @@ def check_potential_reversal(expected: str, recognized: str) -> Optional[str]:
     return None
 
 
+@lru_cache(maxsize=4096)
 def indian_phonetic_key(w: str) -> str:
     """
     Computes an accent-normalized phonetic representation for Indian English speakers.

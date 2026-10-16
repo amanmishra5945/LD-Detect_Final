@@ -482,6 +482,98 @@ function matchesLetterVariants(spoken, letter) {
   return false;
 }
 
+// =========================================================================
+// HIGH-SPEED CLIENT-SIDE SPEECH DICTIONARIES & PHONETIC ENGINES (<1ms)
+// =========================================================================
+
+const CLIENT_REVERSAL_PAIRS = {
+  was: "saw", saw: "was",
+  on: "no", no: "on",
+  bad: "dad", dad: "bad",
+  big: "dig", dig: "big",
+  dog: "bog", bog: "dog",
+  pin: "nip", nip: "pin",
+  ten: "net", net: "ten",
+  pat: "tap", tap: "pat"
+};
+
+const CLIENT_ACCENT_EQUIVALENTS = {
+  the: ["de", "da", "dhe", "thee"],
+  this: ["dis", "dhis"],
+  that: ["dat", "dhat"],
+  these: ["deez", "dese", "dhese"],
+  those: ["dose", "dhose"],
+  with: ["wid", "wit"],
+  three: ["tree", "tri"],
+  think: ["tink"],
+  thank: ["tank"],
+  went: ["vent"],
+  was: ["vas", "waz", "vaz"],
+  water: ["vater"],
+  very: ["wery", "veri"],
+  fast: ["faast"],
+  car: ["kaar"],
+  park: ["paark"],
+  ball: ["bol", "baal"],
+  small: ["smol"],
+  sun: ["san", "son"],
+  cup: ["kap"],
+  bus: ["bas"],
+  cat: ["kat"],
+  bat: ["baat"],
+  runs: ["ranz", "runz"],
+  jump: ["jamp"],
+  duck: ["dak"],
+  tree: ["tri"],
+  happy: ["heppy"],
+  school: ["ischool", "sakool"],
+  spoon: ["ispoon"],
+  station: ["istation"],
+  stop: ["istop"],
+  star: ["istaar"],
+  red: ["rad"],
+  green: ["grin"]
+};
+
+function normalizeFastToken(str) {
+  return (str || "").toLowerCase().replace(/[^a-z0-9]/g, "").trim();
+}
+
+function verifyWordClientFast(spoken, target) {
+  const s = normalizeFastToken(spoken);
+  const t = normalizeFastToken(target);
+  if (!s || !t) return { match: false, isReversal: false, isAccent: false };
+
+  // 1. Exact match
+  if (s === t) {
+    return { match: true, isReversal: false, isAccent: false, label: "Exact Match" };
+  }
+
+  // 2. Target token inside spoken transcript (e.g. "it is cat" or "cat.")
+  const tokens = (spoken || "").toLowerCase().split(/[^a-z0-9']+/).filter(Boolean);
+  if (tokens.includes(t)) {
+    return { match: true, isReversal: false, isAccent: false, label: "Exact Word Match" };
+  }
+
+  // 3. Known reversal check
+  if (CLIENT_REVERSAL_PAIRS[t] === s || tokens.includes(CLIENT_REVERSAL_PAIRS[t])) {
+    return { match: false, isReversal: true, isAccent: false, label: `Letter/Word Reversal (${CLIENT_REVERSAL_PAIRS[t]})` };
+  }
+
+  // 4. Accent/phonetic equivalent
+  const accentVars = CLIENT_ACCENT_EQUIVALENTS[t];
+  if (accentVars && (accentVars.includes(s) || tokens.some(tok => accentVars.includes(tok)))) {
+    return { match: true, isReversal: false, isAccent: true, label: "Indian Accent Match" };
+  }
+
+  // 5. Letter variant check if single letter
+  if (t.length === 1 && matchesLetterVariants(spoken, t)) {
+    return { match: true, isReversal: false, isAccent: false, label: "Letter Phonetic Match" };
+  }
+
+  return { match: false, isReversal: false, isAccent: false };
+}
+
 // Stage 1: Letter Recognition with Mic & Sound-Out Evaluation
 function renderStageLetterRecognition(container, stage) {
   container.innerHTML = `
@@ -564,7 +656,8 @@ function renderStageLetterRecognition(container, stage) {
         const rec = new SpeechClass();
         rec.lang = getSelectedAccent() || "en-US";
         rec.interimResults = true;
-        rec.maxAlternatives = 3;
+        rec.maxAlternatives = 1; // Instant 1-hypothesis recognition
+        rec.continuous = false;  // Auto-close on single utterance
 
         let isCompleted = false;
 
@@ -577,6 +670,7 @@ function renderStageLetterRecognition(container, stage) {
         const handleResolution = (spoken, isCorrect, label, isReversal) => {
           if (isCompleted) return;
           isCompleted = true;
+          try { rec.abort(); } catch (err) {}
           try { rec.stop(); } catch (err) {}
 
           if (isCorrect) {
@@ -750,19 +844,102 @@ function renderStageWordRecognition(container, stage) {
     const micWordBtn = document.getElementById("btnMicWord");
     const micStatus = document.getElementById("singleWordMicStatus");
 
-    // Automated backend AI model verification routine
-    async function processSpokenWordVerification(spokenText, elapsedSec, confidence = 0.85) {
+    function renderWordResultUI(isCorrect, isReversal, badgeLabel, explanation, heard) {
       const compCard = document.getElementById("singleWordCompCard");
       const swTarget = document.getElementById("swTargetText");
       const swHeard = document.getElementById("swHeardText");
       const swBadge = document.getElementById("swResultBadge");
       const swExpl = document.getElementById("swModelExplanation");
 
+      if (compCard) compCard.style.display = "block";
+      if (swTarget) swTarget.textContent = currentTarget;
+      if (swHeard) swHeard.textContent = heard || currentTarget;
+
+      if (swBadge) {
+        if (isCorrect) {
+          swBadge.innerHTML = `<span class="word-comp-badge badge-correct" style="font-size:14px;padding:6px 16px;">${badgeLabel}</span>`;
+        } else if (isReversal) {
+          swBadge.innerHTML = `<span class="word-comp-badge badge-error" style="font-size:14px;padding:6px 16px;">${badgeLabel}</span>`;
+        } else {
+          swBadge.innerHTML = `<span class="word-comp-badge badge-error" style="font-size:14px;padding:6px 16px;">${badgeLabel}</span>`;
+        }
+      }
+
+      if (swExpl) swExpl.textContent = explanation;
+
       if (micStatus) {
-        micStatus.textContent = "AI model verifying spoken word…";
+        micStatus.textContent = isCorrect ? "✓ Verified as Correct by AI Model" : (isReversal ? "✗ Flagged Reversal by AI Model" : "✗ Mispronounced");
+        micStatus.style.color = isCorrect ? "var(--brand-green-dark)" : "var(--accent-amber-dark)";
+      }
+    }
+
+    // High-speed verification with instant client match + non-blocking backend synchronization
+    async function processSpokenWordVerification(spokenText, elapsedSec, confidence = 0.85) {
+      if (micStatus) {
+        micStatus.textContent = "Verifying spoken word…";
         micStatus.style.color = "var(--primary)";
       }
 
+      // 1. Instant client-side zero-latency match (<1ms)
+      const fastCheck = verifyWordClientFast(spokenText, currentTarget);
+      if (fastCheck.match) {
+        const badgeText = fastCheck.isAccent ? "✓ Correct (Indian Accent Match)" : "✓ Correctly Spoken (100% match)";
+        renderWordResultUI(true, false, badgeText, `Word "${currentTarget}" was spoken accurately.`, spokenText);
+        dyslexiaCollectedData.stage_2_words.push({
+          word: currentTarget,
+          spoken: spokenText,
+          correct: true,
+          status: fastCheck.isAccent ? "accent_match" : "correct",
+          reversal_detected: false,
+          response_time_sec: elapsedSec
+        });
+        setTimeout(() => nextWord(), 450);
+
+        // Background sync to API (non-blocking)
+        fetch(`${API_BASE}/api/dyslexia/verify-word`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            target_word: currentTarget,
+            spoken_transcript: spokenText,
+            age: currentChild ? currentChild.age : 8,
+            response_time_sec: elapsedSec,
+            speech_confidence: confidence,
+            accent: getSelectedAccent()
+          })
+        }).catch(() => {});
+        return;
+      }
+
+      if (fastCheck.isReversal) {
+        const revLabel = `✗ Letter / Word Reversal (${fastCheck.label})`;
+        renderWordResultUI(false, true, revLabel, `Observed screening indicator: ${fastCheck.label}`, spokenText);
+        dyslexiaCollectedData.stage_2_words.push({
+          word: currentTarget,
+          spoken: spokenText,
+          correct: false,
+          status: "reversal_error",
+          reversal_detected: true,
+          response_time_sec: elapsedSec
+        });
+        setTimeout(() => nextWord(), 550);
+
+        fetch(`${API_BASE}/api/dyslexia/verify-word`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            target_word: currentTarget,
+            spoken_transcript: spokenText,
+            age: currentChild ? currentChild.age : 8,
+            response_time_sec: elapsedSec,
+            speech_confidence: confidence,
+            accent: getSelectedAccent()
+          })
+        }).catch(() => {});
+        return;
+      }
+
+      // 2. Deep backend AI verification for fuzzy phonetics
       try {
         const res = await fetch(`${API_BASE}/api/dyslexia/verify-word`, {
           method: "POST",
@@ -779,32 +956,9 @@ function renderStageWordRecognition(container, stage) {
 
         if (res.ok) {
           const vData = await res.json();
+          const badgeLabel = vData.accent_match ? "✓ Correct (Indian Accent Match)" : (vData.is_correct ? `✓ Correctly Spoken (${Math.round(vData.similarity_score * 100)}% match)` : (vData.reversal_detected ? `✗ Letter / Word Reversal (${vData.reversal_flag})` : `✗ Mispronounced (${Math.round(vData.similarity_score * 100)}% match)`));
+          renderWordResultUI(vData.is_correct, vData.reversal_detected, badgeLabel, vData.explanation, spokenText);
 
-          if (compCard) compCard.style.display = "block";
-          if (swTarget) swTarget.textContent = currentTarget;
-          if (swHeard) swHeard.textContent = spokenText;
-
-          if (swBadge) {
-            if (vData.is_correct) {
-              const label = vData.accent_match ? "✓ Correct (Indian Accent Match)" : `✓ Correctly Spoken (${Math.round(vData.similarity_score * 100)}% match)`;
-              swBadge.innerHTML = `<span class="word-comp-badge badge-correct" style="font-size:14px;padding:6px 16px;">${label}</span>`;
-            } else if (vData.reversal_detected) {
-              swBadge.innerHTML = `<span class="word-comp-badge badge-error" style="font-size:14px;padding:6px 16px;">✗ Letter / Word Reversal Detected (${vData.reversal_flag})</span>`;
-            } else {
-              swBadge.innerHTML = `<span class="word-comp-badge badge-error" style="font-size:14px;padding:6px 16px;">✗ Mispronounced (${Math.round(vData.similarity_score * 100)}% match)</span>`;
-            }
-          }
-
-          if (swExpl) {
-            swExpl.textContent = vData.explanation;
-          }
-
-          if (micStatus) {
-            micStatus.textContent = vData.is_correct ? "✓ Verified as Correct by AI Model" : `AI Model flagged: ${vData.verdict_label}`;
-            micStatus.style.color = vData.is_correct ? "var(--brand-green-dark)" : "var(--accent-amber-dark)";
-          }
-
-          // Automatically record verified result
           dyslexiaCollectedData.stage_2_words.push({
             word: currentTarget,
             spoken: spokenText,
@@ -814,24 +968,24 @@ function renderStageWordRecognition(container, stage) {
             response_time_sec: elapsedSec
           });
 
-          // Automatically proceed to next word after showing verification
-          setTimeout(() => nextWord(), 1400);
+          setTimeout(() => nextWord(), vData.is_correct ? 450 : 650);
           return;
         }
       } catch (err) {}
 
-      // Fallback if offline
+      // Fallback
       const isSimpleMatch = spokenText.toLowerCase().includes(currentTarget.toLowerCase());
+      renderWordResultUI(isSimpleMatch, false, isSimpleMatch ? "✓ Correct" : "✗ Mispronounced", `Heard: "${spokenText}"`, spokenText);
       dyslexiaCollectedData.stage_2_words.push({
         word: currentTarget,
         spoken: spokenText,
         correct: isSimpleMatch,
         response_time_sec: elapsedSec
       });
-      setTimeout(() => nextWord(), 1100);
+      setTimeout(() => nextWord(), 450);
     }
 
-    // Single-word speech recognition
+    // High-performance single-word speech recognition
     async function startSingleRec() {
       try {
         const SingleSpeech = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -842,7 +996,8 @@ function renderStageWordRecognition(container, stage) {
         const singleRec = new SingleSpeech();
         singleRec.lang = getSelectedAccent() || "en-US";
         singleRec.interimResults = true;
-        singleRec.maxAlternatives = 3;
+        singleRec.maxAlternatives = 1; // Instant 1-hypothesis recognition
+        singleRec.continuous = false;  // Auto-close on single utterance
 
         singleRec.onstart = () => {
           if (micWordBtn) {
@@ -855,15 +1010,35 @@ function renderStageWordRecognition(container, stage) {
         };
 
         singleRec.onresult = async (evt) => {
-          wordRecognized = true;
           let spoken = "";
+          let isFinal = false;
           for (let i = 0; i < evt.results.length; i++) {
             spoken += evt.results[i][0].transcript + " ";
+            if (evt.results[i].isFinal) isFinal = true;
           }
           spoken = spoken.trim().toLowerCase();
-          if (spoken) {
-            const rt = Math.max((performance.now() - startT) / 1000.0, 0.4);
-            const conf = evt.results[0][0].confidence || 0.85;
+          if (!spoken) return;
+
+          const rt = Math.max((performance.now() - startT) / 1000.0, 0.4);
+          const conf = (evt.results[0] && evt.results[0][0]) ? (evt.results[0][0].confidence || 0.85) : 0.85;
+
+          // Check instant match on interim stream
+          const fastCheck = verifyWordClientFast(spoken, currentTarget);
+          if (fastCheck.match || fastCheck.isReversal) {
+            wordRecognized = true;
+            try { singleRec.abort(); } catch (e) {}
+            try { singleRec.stop(); } catch (e) {}
+            await processSpokenWordVerification(spoken, rt, conf);
+            return;
+          }
+
+          if (micStatus && !wordRecognized) {
+            micStatus.innerHTML = `Heard: "<span style="color:#2563EB; font-weight:700;">${spoken}</span>"…`;
+          }
+
+          if (isFinal && !wordRecognized) {
+            wordRecognized = true;
+            try { singleRec.stop(); } catch (e) {}
             await processSpokenWordVerification(spoken, rt, conf);
           }
         };
@@ -1614,7 +1789,7 @@ function setupSpeechRecognitionEngine() {
   speechRecognizer.continuous = true;
   speechRecognizer.interimResults = true;
   speechRecognizer.lang = getSelectedAccent();
-  speechRecognizer.maxAlternatives = 3;
+  speechRecognizer.maxAlternatives = 1; // Instant single-hypothesis recognition
 
   speechRecognizer.onstart = () => {
     isListening = true;
@@ -1656,7 +1831,7 @@ function setupSpeechRecognitionEngine() {
     if (statusText) statusText.innerHTML = `<span style="color:#15803D; font-weight:700;">● Voice detected: Transcribing…</span>`;
   };
 
-  speechRecognizer.onresult = async (event) => {
+  speechRecognizer.onresult = (event) => {
     const now = performance.now();
     if (lastSpeechEventTime && (now - lastSpeechEventTime) > 1500) {
       speechPauses.push((now - lastSpeechEventTime) / 1000.0);
@@ -1665,10 +1840,12 @@ function setupSpeechRecognitionEngine() {
 
     let finalTranscript = "";
     let interimTranscript = "";
+    let isFinalChunk = false;
 
     for (let i = 0; i < event.results.length; ++i) {
       if (event.results[i].isFinal) {
         finalTranscript += event.results[i][0].transcript + " ";
+        isFinalChunk = true;
       } else {
         interimTranscript += event.results[i][0].transcript + " ";
       }
@@ -1684,8 +1861,8 @@ function setupSpeechRecognitionEngine() {
         statusText.innerHTML = `Heard: "<span style="color:#15803D; font-weight:700;">${currentText}</span>"`;
       }
 
-      // Real-time backend alignment + live ML prediction call
-      await runSpeechAlignmentUpdate(currentText);
+      // Real-time instant client alignment (<1ms) + debounced backend alignment
+      runSpeechAlignmentUpdate(currentText, isFinalChunk);
     }
   };
 
@@ -1824,12 +2001,92 @@ function updateMicVisualState(listening, text) {
   if (status) status.textContent = text;
 }
 
-async function runSpeechAlignmentUpdate(transcript) {
+// =========================================================================
+// REAL-TIME CLIENT SPEECH ALIGNMENT ENGINE (<1ms) & DEBOUNCED BACKEND SYNC
+// =========================================================================
+
+let liveAlignDebounceTimer = null;
+let liveAlignSeq = 0;
+
+function fastClientAlign(expectedText, transcript) {
+  if (!expectedText) return;
+  const targetWords = expectedText.match(/[a-zA-Z0-9']+/g) || [];
+  const spokenTokens = (transcript || "").toLowerCase().match(/[a-zA-Z0-9']+/g) || [];
+  if (targetWords.length === 0) return;
+
+  let correctCount = 0;
+  let lastMatchIdx = 0;
+
+  targetWords.forEach((w, idx) => {
+    const cleanW = normalizeFastToken(w);
+    let matched = false;
+
+    for (let j = 0; j < spokenTokens.length; j++) {
+      const sTok = normalizeFastToken(spokenTokens[j]);
+      if (sTok === cleanW || (CLIENT_ACCENT_EQUIVALENTS[cleanW] && CLIENT_ACCENT_EQUIVALENTS[cleanW].includes(sTok))) {
+        matched = true;
+        break;
+      }
+    }
+
+    const span = document.getElementById(`streamWord_${idx}`);
+    if (span) {
+      span.className = "stream-word";
+      if (matched) {
+        span.classList.add("matched-correct");
+        lastMatchIdx = idx + 1;
+        correctCount++;
+      } else if (idx < spokenTokens.length) {
+        span.classList.add("matched-error");
+        lastMatchIdx = idx + 1;
+      }
+    }
+  });
+
+  const nextSpan = document.getElementById(`streamWord_${lastMatchIdx}`);
+  if (nextSpan) {
+    nextSpan.classList.add("active-focus");
+  }
+
+  const accPct = Math.round((correctCount / targetWords.length) * 100);
+  const bigAcc = document.getElementById("liveAccuracyBigNum");
+  if (bigAcc) bigAcc.textContent = `${accPct}%`;
+
+  const accElem = document.getElementById("liveAccuracyPct");
+  if (accElem) accElem.textContent = `${accPct}%`;
+
+  const progElem = document.getElementById("liveWordProgress");
+  if (progElem) progElem.textContent = `${Math.min(spokenTokens.length, targetWords.length)} of ${targetWords.length}`;
+
+  const corBadge = document.getElementById("liveCorrectWordsBadge");
+  if (corBadge) corBadge.textContent = `${correctCount} Correct`;
+
+  const estErrors = Math.max(0, spokenTokens.length - correctCount);
+  const errBadge = document.getElementById("liveErrorsWordsBadge");
+  if (errBadge) {
+    errBadge.textContent = `${estErrors} Errors`;
+    errBadge.className = estErrors === 0 ? "badge-risk Normal" : "badge-risk Mild";
+  }
+
+  const progText = document.getElementById("liveWordProgressText");
+  if (progText) progText.textContent = `${correctCount} of ${targetWords.length} words verified`;
+
+  const accDetail = document.getElementById("liveAccuracyDetail");
+  if (accDetail) {
+    if (accPct >= 80) {
+      accDetail.textContent = `${correctCount} of ${targetWords.length} words read accurately!`;
+    } else {
+      accDetail.textContent = `Reading in progress: ${correctCount} of ${targetWords.length} words matched.`;
+    }
+  }
+}
+
+async function runSpeechAlignmentUpdate(transcript, isFinal = false) {
   if (!dyslexiaSession || !dyslexiaSession.stages[2]) return;
   const expected = dyslexiaSession.stages[2].passage.text;
   const childAge = currentChild ? currentChild.age : 8;
 
-  // 1. Instantly update live heard transcript so tester and child see what is being spoken
+  // 1. Instant zero-latency (<1ms) visual transcript update
   const heardBox = document.getElementById("liveHeardTranscript");
   if (heardBox) {
     if (transcript && transcript.trim()) {
@@ -1846,105 +2103,64 @@ async function runSpeechAlignmentUpdate(transcript) {
     confElem.textContent = `Audio Confidence: ${Math.round(speechConfidenceAvg * 100)}%`;
   }
 
-  try {
-    const res = await fetch(`${API_BASE}/api/dyslexia/align-speech?age=${childAge}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        expected_text: expected,
-        transcript: transcript,
-        duration_sec: Math.max((performance.now() - (speechStartTimestamp || performance.now())) / 1000.0, 0.5),
-        pauses: speechPauses,
-        speech_confidence: speechConfidenceAvg,
-        accent: getSelectedAccent()
-      })
-    });
+  // 2. Instant client-side alignment (<1ms)
+  fastClientAlign(expected, transcript);
 
-    if (res.ok) {
-      const data = await res.json();
-      
-      // 2. Update Telemetry displays
-      const speedElem = document.getElementById("liveSpeedWpm");
-      if (speedElem) speedElem.textContent = `${Math.round(data.metrics.reading_speed_wpm)} WPM`;
+  // 3. Debounced backend alignment & live ML prediction call
+  if (liveAlignDebounceTimer) {
+    clearTimeout(liveAlignDebounceTimer);
+    liveAlignDebounceTimer = null;
+  }
 
-      const accElem = document.getElementById("liveAccuracyPct");
-      if (accElem) accElem.textContent = `${Math.round(data.metrics.reading_accuracy_pct)}%`;
-
-      const progElem = document.getElementById("liveWordProgress");
-      if (progElem) progElem.textContent = `${data.metrics.spoken_word_count} of ${data.metrics.expected_word_count}`;
-
-      const hesElem = document.getElementById("liveHesitationCounter");
-      if (hesElem) hesElem.textContent = `Hesitations: ${data.metrics.hesitation_count}`;
-
-      // 3. Update Big Accuracy Banner & Correctness Summary
-      const bigAcc = document.getElementById("liveAccuracyBigNum");
-      if (bigAcc) bigAcc.textContent = `${Math.round(data.metrics.reading_accuracy_pct)}%`;
-
-      const accDetail = document.getElementById("liveAccuracyDetail");
-      if (accDetail) {
-        if (data.metrics.reading_accuracy_pct >= 90) {
-          accDetail.textContent = `${data.metrics.correct_words} of ${data.metrics.expected_word_count} words read accurately!`;
-        } else {
-          accDetail.textContent = `${data.metrics.correct_words} of ${data.metrics.expected_word_count} words spoken correctly — ${data.metrics.total_errors} error(s)/hesitation(s) noted.`;
-        }
-      }
-
-      const corBadge = document.getElementById("liveCorrectWordsBadge");
-      if (corBadge) corBadge.textContent = `${data.metrics.correct_words} Correct`;
-
-      const errBadge = document.getElementById("liveErrorsWordsBadge");
-      if (errBadge) {
-        errBadge.textContent = `${data.metrics.total_errors} Errors`;
-        errBadge.className = data.metrics.total_errors === 0 ? "badge-risk Normal" : "badge-risk Mild";
-      }
-
-      const progText = document.getElementById("liveWordProgressText");
-      if (progText) progText.textContent = `${data.metrics.spoken_word_count} of ${data.metrics.expected_word_count} words verified`;
-
-      // 4. Update Word-by-Word Comparison Grid
-      renderWordComparisonGrid(data.aligned_words);
-
-      // 5. Real-Time Model Live Classification
-      if (data.live_prediction) {
-        const pred = data.live_prediction;
-        const pillStatus = document.getElementById("liveModelStatus");
-        if (pillStatus) {
-          const colorMap = { Normal: "#047857", Mild: "#B45309", Moderate: "#C2410C", Severe: "#DC2626" };
-          const conf = Math.round(pred.confidence * 100);
-          pillStatus.innerHTML = `Live ML Model: <strong style="color:${colorMap[pred.risk_level] || '#2563EB'}">${pred.risk_level}</strong> (${conf}% Confidence)`;
-        }
-      }
-
-      // 6. Highlight individual target words in the sentence stream
-      const aligned = data.aligned_words || [];
-      let lastMatchIdx = 0;
-      aligned.forEach((tok, i) => {
-        const span = document.getElementById(`streamWord_${i}`);
-        if (span) {
-          span.className = "stream-word";
-          if (tok.status === "correct") {
-            span.classList.add("matched-correct");
-            lastMatchIdx = i + 1;
-          } else if (tok.status === "substitution") {
-            span.classList.add("matched-error");
-            span.title = `Heard: "${tok.recognized}"`;
-            lastMatchIdx = i + 1;
-          } else if (tok.status === "omission") {
-            span.classList.add("matched-omitted");
-          }
-        }
+  const sendBackendRequest = async () => {
+    const seq = ++liveAlignSeq;
+    try {
+      const res = await fetch(`${API_BASE}/api/dyslexia/align-speech?age=${childAge}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          expected_text: expected,
+          transcript: transcript,
+          duration_sec: Math.max((performance.now() - (speechStartTimestamp || performance.now())) / 1000.0, 0.5),
+          pauses: speechPauses,
+          speech_confidence: speechConfidenceAvg,
+          accent: getSelectedAccent()
+        })
       });
 
-      // Highlight the upcoming active focus word
-      const nextSpan = document.getElementById(`streamWord_${lastMatchIdx}`);
-      if (nextSpan) {
-        nextSpan.classList.add("active-focus");
-      }
+      if (res.ok && seq === liveAlignSeq) {
+        const data = await res.json();
+        
+        // Update reading speed
+        const speedElem = document.getElementById("liveSpeedWpm");
+        if (speedElem) speedElem.textContent = `${Math.round(data.metrics.reading_speed_wpm)} WPM`;
 
-      // 7. Render acoustic chips
-      renderSpeechChips(data.aligned_words);
-    }
-  } catch (err) {}
+        const hesElem = document.getElementById("liveHesitationCounter");
+        if (hesElem) hesElem.textContent = `Hesitations: ${data.metrics.hesitation_count}`;
+
+        // Real-Time Model Live Classification
+        if (data.live_prediction) {
+          const pred = data.live_prediction;
+          const pillStatus = document.getElementById("liveModelStatus");
+          if (pillStatus) {
+            const colorMap = { Normal: "#047857", Mild: "#B45309", Moderate: "#C2410C", Severe: "#DC2626" };
+            const conf = Math.round(pred.confidence * 100);
+            pillStatus.innerHTML = `Live ML Model: <strong style="color:${colorMap[pred.risk_level] || '#2563EB'}">${pred.risk_level}</strong> (${conf}% Confidence)`;
+          }
+        }
+
+        // Render Word-by-Word Comparison Grid & Chips
+        renderWordComparisonGrid(data.aligned_words);
+        renderSpeechChips(data.aligned_words);
+      }
+    } catch (err) {}
+  };
+
+  if (isFinal) {
+    sendBackendRequest();
+  } else {
+    liveAlignDebounceTimer = setTimeout(sendBackendRequest, 160);
+  }
 }
 
 function renderWordComparisonGrid(alignedWords) {

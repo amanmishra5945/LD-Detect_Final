@@ -27,7 +27,8 @@ def test_html_js_ids():
         'inputSingleWordManual', 'btnVerifySingleManual', 'inputManualSpoken', 'btnVerifyManualSpoken',
         'btnStartRapidTest', 'btnStopRapidTest', 'rapidTimerDisplay', 'rapidErrCountDisplay',
         'btnRapidErrMinus', 'btnRapidErrPlus', 'rapidSpeedStatus', 'rapidSummaryCard',
-        'rapidSummaryDetails', 'btnDemoRapidTypical', 'btnDemoRapidSlow'
+        'rapidSummaryDetails', 'btnDemoRapidTypical', 'btnDemoRapidSlow',
+        'btnSkipPhono', 'btnLetterDemoAllCorrect', 'btnSkipSpell', 'btnSkipWord', 'btnSkipComp'
     }
 
     missing = ids_in_js - ids_in_html - dynamic_ids

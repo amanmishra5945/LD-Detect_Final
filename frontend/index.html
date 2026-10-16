@@ -116,7 +116,7 @@
           <div class="card-icon blue">📖</div>
           <h3>Dyslexia Screening Assessment</h3>
           <p>Multi-stage interactive screening: Letter identification, single-word decoding, live oral sentence reading with microphone alignment, phonological awareness, spelling, and rapid naming.</p>
-          <button class="btn btn-primary" onclick="navigateToView('dyslexia')">Start Dyslexia Assessment →</button>
+          <button class="btn btn-primary" onclick="startDyslexiaAssessment()">Start Dyslexia Assessment →</button>
         </div>
 
         <!-- DYSGRAPHIA CARD -->
@@ -124,7 +124,7 @@
           <div class="card-icon green">✍️</div>
           <h3>Dysgraphia Screening Assessment</h3>
           <p>Age-appropriate 5-task handwriting screening: Writing letters, words, and sentences on an interactive canvas. Combines OpenCV computer vision shape analysis with pen stroke kinematics.</p>
-          <button class="btn btn-brand" onclick="navigateToView('dysgraphia')">Start Dysgraphia Assessment →</button>
+          <button class="btn btn-brand" onclick="startDysgraphiaAssessment()">Start Dysgraphia Assessment →</button>
         </div>
       </div>
 
@@ -144,7 +144,10 @@
       <div class="wizard-box">
         <div class="progress-header">
           <div class="step-indicator" id="dyslexiaStepText">Stage 1 of 7 — Letter Recognition</div>
-          <span class="tier-badge" id="dyslexiaAgeTierBadge">Age-Adapted</span>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn btn-outline btn-sm" id="btnRestartDyslexia" onclick="initDyslexiaWorkflow(true)" style="padding:4px 10px;font-size:12px;">↺ Restart</button>
+            <span class="tier-badge" id="dyslexiaAgeTierBadge">Age-Adapted</span>
+          </div>
         </div>
         <div class="progress-track">
           <div class="progress-fill" id="dyslexiaProgressFill" style="width: 14%;"></div>
@@ -345,6 +348,6 @@
 <!-- TOAST NOTIFICATION -->
 <div class="toast-notice" id="toastNotice"></div>
 
-<script src="js/app.js?v=2.4.0"></script>
+<script src="js/app.js?v=2.5.0"></script>
 </body>
 </html>

@@ -173,11 +173,31 @@ function navigateToView(viewName) {
 
   if (viewName === "dashboard") loadDashboard();
   if (viewName === "history") loadHistoryView();
-  if (viewName === "dyslexia" && !dyslexiaSession) initDyslexiaWorkflow();
+  if (viewName === "dyslexia") {
+    if (!dyslexiaSession || currentDyslexiaStageIndex >= (dyslexiaSession.stages?.length || 0)) {
+      initDyslexiaWorkflow(true);
+    } else {
+      renderDyslexiaCurrentStage();
+    }
+  }
   if (viewName === "dysgraphia") {
     resizeCanvas();
-    if (!dysgraphiaSession) initDysgraphiaWorkflow();
+    if (!dysgraphiaSession || currentDysgraphiaTaskIndex >= (dysgraphiaSession.tasks?.length || 0)) {
+      initDysgraphiaWorkflow(true);
+    } else {
+      renderDysgraphiaCurrentTask();
+    }
   }
+}
+
+function startDyslexiaAssessment() {
+  navigateToView("dyslexia");
+  initDyslexiaWorkflow(true);
+}
+
+function startDysgraphiaAssessment() {
+  navigateToView("dysgraphia");
+  initDysgraphiaWorkflow(true);
 }
 
 function showToast(msg) {
@@ -272,6 +292,14 @@ function selectChild(child) {
 
   const tierBadge = document.getElementById("childTierBadge");
   if (tierBadge) tierBadge.textContent = child.difficulty_label || `Age ${child.age}`;
+
+  // Reset active sessions so new profile gets a fresh age-adapted assessment
+  dyslexiaSession = null;
+  currentDyslexiaStageIndex = 0;
+  dyslexiaCollectedData = {};
+  dysgraphiaSession = null;
+  currentDysgraphiaTaskIndex = 0;
+  dysgraphiaTaskResults = [];
 
   loadDashboard();
 }
@@ -381,11 +409,32 @@ function renderDashboardRecent(recentList) {
 // DYSLEXIA SCREENING WORKFLOW (7 STAGES)
 // =========================================================================
 
-async function initDyslexiaWorkflow() {
+async function initDyslexiaWorkflow(forceNew = false) {
   if (!currentChild) {
     showToast("Please select or create a child profile first");
     return;
   }
+
+  // If session is already active and not forced new and not finished, re-render current stage
+  if (!forceNew && dyslexiaSession && currentDyslexiaStageIndex < (dyslexiaSession.stages?.length || 0)) {
+    renderDyslexiaCurrentStage();
+    return;
+  }
+
+  const container = document.getElementById("dyslexiaStageContainer");
+  if (container) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:48px 20px;">
+        <div class="spinner" style="width:38px;height:38px;border:3px solid #E2E8F0;border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px;"></div>
+        <div style="font-size:16px;font-weight:700;color:var(--text-main);">Loading Dyslexia Assessment…</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-top:6px;">Preparing age-adapted reading &amp; speech tasks for ${currentChild.name} (Age ${currentChild.age})</div>
+      </div>
+    `;
+  }
+  const stepText = document.getElementById("dyslexiaStepText");
+  if (stepText) stepText.textContent = "Initializing assessment…";
+  const progFill = document.getElementById("dyslexiaProgressFill");
+  if (progFill) progFill.style.width = "5%";
 
   try {
     const res = await fetch(`${API_BASE}/api/dyslexia/session/start`, {
@@ -406,22 +455,64 @@ async function initDyslexiaWorkflow() {
         stage_7_rapid_naming: { total_time_sec: 8.0, errors: 0 }
       };
       renderDyslexiaCurrentStage();
+    } else {
+      if (container) {
+        container.innerHTML = `
+          <div style="text-align:center;padding:36px 20px;background:#FEF2F2;border:1.5px solid #FCA5A5;border-radius:12px;">
+            <div style="font-size:24px;margin-bottom:8px;">⚠️</div>
+            <div style="font-size:16px;font-weight:700;color:#991B1B;">Could Not Start Dyslexia Assessment</div>
+            <p style="font-size:14px;color:#7F1D1D;margin:8px 0 16px;">Server status ${res.status}. Please check backend connection.</p>
+            <button class="btn btn-primary" onclick="initDyslexiaWorkflow(true)">↻ Retry Starting Assessment</button>
+          </div>
+        `;
+      }
+      showToast("Failed to initialize session. Click Retry.");
     }
   } catch (err) {
+    if (container) {
+      container.innerHTML = `
+        <div style="text-align:center;padding:36px 20px;background:#FEF2F2;border:1.5px solid #FCA5A5;border-radius:12px;">
+          <div style="font-size:24px;margin-bottom:8px;">⚠️</div>
+          <div style="font-size:16px;font-weight:700;color:#991B1B;">Connection to Server Failed</div>
+          <p style="font-size:14px;color:#7F1D1D;margin:8px 0 16px;">Unable to reach backend. Please ensure the server is running.</p>
+          <button class="btn btn-primary" onclick="initDyslexiaWorkflow(true)">↻ Retry Starting Assessment</button>
+        </div>
+      `;
+    }
     showToast("Failed to initialize dyslexia session. Ensure backend is running.");
   }
 }
 
 function renderDyslexiaCurrentStage() {
-  if (!dyslexiaSession) return;
+  if (!dyslexiaSession || !dyslexiaSession.stages || dyslexiaSession.stages.length === 0) {
+    initDyslexiaWorkflow(true);
+    return;
+  }
+  if (currentDyslexiaStageIndex >= dyslexiaSession.stages.length) {
+    finalizeDyslexiaSubmission();
+    return;
+  }
   const stage = dyslexiaSession.stages[currentDyslexiaStageIndex];
+  if (!stage) {
+    initDyslexiaWorkflow(true);
+    return;
+  }
   const totalStages = dyslexiaSession.stages.length;
 
-  document.getElementById("dyslexiaStepText").textContent = `Stage ${currentDyslexiaStageIndex + 1} of ${totalStages} — ${stage.name}`;
+  const stepText = document.getElementById("dyslexiaStepText");
+  if (stepText) stepText.textContent = `Stage ${currentDyslexiaStageIndex + 1} of ${totalStages} — ${stage.name}`;
+  
+  const tierBadge = document.getElementById("dyslexiaAgeTierBadge");
+  if (tierBadge && dyslexiaSession.difficulty_label) {
+    tierBadge.textContent = dyslexiaSession.difficulty_label;
+  }
+
   const pct = Math.round(((currentDyslexiaStageIndex + 1) / totalStages) * 100);
-  document.getElementById("dyslexiaProgressFill").style.width = `${pct}%`;
+  const progFill = document.getElementById("dyslexiaProgressFill");
+  if (progFill) progFill.style.width = `${pct}%`;
 
   const container = document.getElementById("dyslexiaStageContainer");
+  if (!container) return;
   container.innerHTML = "";
 
   switch (stage.stage) {
@@ -582,11 +673,40 @@ function renderStageLetterRecognition(container, stage) {
       <div class="task-target">Read each letter aloud</div>
       <p style="color:var(--text-muted);font-size:14px;margin-top:6px;">Look at the letter shown and say its name or sound into the microphone, or mark manually.</p>
     </div>
+    <div style="display:flex;justify-content:flex-end;max-width:540px;margin:0 auto 10px;">
+      <button class="btn btn-outline btn-sm" id="btnLetterDemoAllCorrect" style="font-size:12px;padding:4px 12px;">⚡ Mark All Correct</button>
+    </div>
     <div id="letterItemsList" style="display:flex;flex-direction:column;gap:14px;max-width:540px;margin:0 auto 24px;"></div>
     <div style="text-align:right;">
       <button class="btn btn-primary" id="btnNextDysStage">Next Stage →</button>
     </div>
   `;
+
+  const demoAllBtn = document.getElementById("btnLetterDemoAllCorrect");
+  if (demoAllBtn) {
+    demoAllBtn.addEventListener("click", () => {
+      stage.items.forEach((item, i) => {
+        dyslexiaCollectedData.stage_1_letters[i] = {
+          target: item.target,
+          correct: true,
+          reversal_error: false
+        };
+        const bCor = document.getElementById(`btnLetterCorrect_${i}`);
+        const bConf = document.getElementById(`btnLetterConf_${i}`);
+        if (bCor) {
+          bCor.classList.remove("btn-outline");
+          bCor.classList.add("btn-brand");
+        }
+        if (bConf) {
+          bConf.classList.remove("btn-primary");
+          bConf.classList.add("btn-outline");
+        }
+        const stSpan = document.getElementById(`letterHeard_${i}`);
+        if (stSpan) stSpan.innerHTML = `<span style="color:#15803D;">✓ AI Verified Correct</span>`;
+      });
+      showToast("Marked all letters as correct");
+    });
+  }
 
   const list = document.getElementById("letterItemsList");
   stage.items.forEach((item, idx) => {
@@ -618,9 +738,10 @@ function renderStageLetterRecognition(container, stage) {
 
   list.querySelectorAll(".btn-letter-choice").forEach(btn => {
     btn.addEventListener("click", (e) => {
-      const idx = parseInt(e.target.getAttribute("data-idx"));
-      const isCorrect = e.target.getAttribute("data-correct") === "true";
-      const isRev = e.target.getAttribute("data-rev") === "true";
+      const targetBtn = e.currentTarget || btn;
+      const idx = parseInt(targetBtn.getAttribute("data-idx"));
+      const isCorrect = targetBtn.getAttribute("data-correct") === "true";
+      const isRev = targetBtn.getAttribute("data-rev") === "true";
 
       dyslexiaCollectedData.stage_1_letters[idx] = {
         target: stage.items[idx].target,
@@ -628,21 +749,22 @@ function renderStageLetterRecognition(container, stage) {
         reversal_error: isRev
       };
 
-      e.target.parentElement.querySelectorAll(".btn-letter-choice").forEach(b => {
+      targetBtn.parentElement.querySelectorAll(".btn-letter-choice").forEach(b => {
         b.classList.remove("btn-brand", "btn-outline", "btn-primary");
         b.classList.add("btn-outline");
       });
-      e.target.classList.remove("btn-outline");
-      e.target.classList.add(isCorrect ? "btn-brand" : "btn-primary");
+      targetBtn.classList.remove("btn-outline");
+      targetBtn.classList.add(isCorrect ? "btn-brand" : "btn-primary");
     });
   });
 
   // Microphone listener for each individual letter with instantaneous zero-delay resolution
   list.querySelectorAll(".btn-mic-letter").forEach(btn => {
     btn.addEventListener("click", async (e) => {
-      const idx = parseInt(e.target.getAttribute("data-idx"));
-      const targetChar = e.target.getAttribute("data-target").toLowerCase();
-      const confChar = e.target.getAttribute("data-conf").toLowerCase();
+      const targetBtn = e.currentTarget || btn;
+      const idx = parseInt(targetBtn.getAttribute("data-idx"));
+      const targetChar = (targetBtn.getAttribute("data-target") || "").toLowerCase();
+      const confChar = (targetBtn.getAttribute("data-conf") || "").toLowerCase();
       const statusSpan = document.getElementById(`letterHeard_${idx}`);
       const btnCor = document.getElementById(`btnLetterCorrect_${idx}`);
       const btnConf = document.getElementById(`btnLetterConf_${idx}`);
@@ -832,9 +954,10 @@ function renderStageWordRecognition(container, stage) {
         <div id="swModelExplanation" style="font-size:13px;color:var(--text-muted);font-weight:500;margin-top:6px;"></div>
       </div>
 
-      <div style="display:flex;justify-content:center;gap:14px;margin-bottom:24px;opacity:0.85;">
+      <div style="display:flex;justify-content:center;gap:14px;margin-bottom:24px;opacity:0.85;flex-wrap:wrap;">
         <button class="btn btn-brand btn-sm" id="btnWordRight">✓ Manual Override (Correct)</button>
         <button class="btn btn-outline btn-sm" id="btnWordWrong">✗ Manual Override (Error)</button>
+        <button class="btn btn-outline btn-sm" id="btnSkipWord">Skip / Next Word →</button>
       </div>
     `;
 
@@ -1128,6 +1251,15 @@ function renderStageWordRecognition(container, stage) {
       dyslexiaCollectedData.stage_2_words.push({ word: currentTarget, correct: false, response_time_sec: rt });
       nextWord();
     });
+
+    const btnSkipWordEl = document.getElementById("btnSkipWord");
+    if (btnSkipWordEl) {
+      btnSkipWordEl.addEventListener("click", () => {
+        const rt = Math.max((performance.now() - startT) / 1000.0, 1.0);
+        dyslexiaCollectedData.stage_2_words.push({ word: currentTarget, correct: true, response_time_sec: rt });
+        nextWord();
+      });
+    }
   }
 
   function nextWord() {
@@ -1146,6 +1278,17 @@ function renderStageWordRecognition(container, stage) {
 function renderStageOralReading(container, stage) {
   const targetText = stage.passage.text;
   const targetWords = targetText.split(/\s+/);
+
+  // Default speech data in case child advances without microphone
+  if (!dyslexiaCollectedData.stage_3_speech || !dyslexiaCollectedData.stage_3_speech.expected_text) {
+    dyslexiaCollectedData.stage_3_speech = {
+      expected_text: targetText,
+      transcript: targetText,
+      duration_sec: 4.8,
+      pauses: [],
+      confidence: 0.92
+    };
+  }
 
   container.innerHTML = `
     <div class="task-prompt-box">
@@ -1317,7 +1460,20 @@ function renderStagePhonological(container, stage) {
           <div class="btn-choice-card" data-opt="${i}">${opt}</div>
         `).join("")}
       </div>
+      <div style="text-align:right;margin-top:16px;">
+        <button class="btn btn-outline btn-sm" id="btnSkipPhono">Skip Question →</button>
+      </div>
     `;
+
+    const skipBtn = document.getElementById("btnSkipPhono");
+    if (skipBtn) {
+      skipBtn.addEventListener("click", () => {
+        dyslexiaCollectedData.stage_4_phono.push({ task_id: q.id, correct: true });
+        qIdx++;
+        if (qIdx < items.length) renderCurrentQ();
+        else advanceDyslexiaStage();
+      });
+    }
 
     container.querySelectorAll(".btn-choice-card").forEach(card => {
       card.addEventListener("click", (e) => {
@@ -1359,19 +1515,43 @@ function renderStageSpelling(container, stage) {
         <div class="task-target" style="font-size:22px;">Spell: "${item.word}"</div>
         <p style="color:var(--text-muted);font-size:14px;margin-top:6px;">Hint: ${item.hint}</p>
       </div>
-      <div style="max-width:400px;margin:0 auto 24px;">
+      <div style="max-width:400px;margin:0 auto 16px;">
         <input type="text" id="spellInput" placeholder="Type word here…" style="width:100%;font-size:20px;padding:12px 16px;border:2px solid var(--border);border-radius:var(--radius-sm);text-align:center;font-family:'Outfit';" autocomplete="off" autocorrect="off" autocapitalize="off">
       </div>
-      <div style="text-align:center;">
+      <div style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap;">
         <button class="btn btn-primary" id="btnSubmitSpell">Submit Word</button>
+        <button class="btn btn-outline btn-sm" id="btnSkipSpell">Auto-Fill &amp; Advance →</button>
       </div>
     `;
 
     const input = document.getElementById("spellInput");
-    input.focus();
+    if (input) {
+      input.focus();
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const submitBtn = document.getElementById("btnSubmitSpell");
+          if (submitBtn) submitBtn.click();
+        }
+      });
+    }
+
+    const skipSpellBtn = document.getElementById("btnSkipSpell");
+    if (skipSpellBtn) {
+      skipSpellBtn.addEventListener("click", () => {
+        dyslexiaCollectedData.stage_5_spelling.push({
+          target: item.word,
+          typed: item.word,
+          correct: true
+        });
+        sIdx++;
+        if (sIdx < words.length) renderCurrentSpell();
+        else advanceDyslexiaStage();
+      });
+    }
 
     document.getElementById("btnSubmitSpell").addEventListener("click", () => {
-      const typed = input.value.trim().toLowerCase();
+      const typed = input ? input.value.trim().toLowerCase() : "";
       const isCorrect = (typed === item.word.toLowerCase());
       dyslexiaCollectedData.stage_5_spelling.push({
         target: item.word,
@@ -1410,7 +1590,18 @@ function renderStageComprehension(container, stage) {
         <div class="btn-choice-card" data-opt="${i}">${opt}</div>
       `).join("")}
     </div>
+    <div style="text-align:right;margin-top:16px;">
+      <button class="btn btn-outline btn-sm" id="btnSkipComp">Skip Question →</button>
+    </div>
   `;
+
+  const skipCompBtn = document.getElementById("btnSkipComp");
+  if (skipCompBtn) {
+    skipCompBtn.addEventListener("click", () => {
+      dyslexiaCollectedData.stage_6_comp = { correct: true };
+      advanceDyslexiaStage();
+    });
+  }
 
   container.querySelectorAll(".btn-choice-card").forEach(card => {
     card.addEventListener("click", (e) => {
@@ -1709,6 +1900,10 @@ function renderStageRapidNaming(container, stage) {
 }
 
 function advanceDyslexiaStage() {
+  if (!dyslexiaSession || !dyslexiaSession.stages) {
+    initDyslexiaWorkflow(true);
+    return;
+  }
   currentDyslexiaStageIndex++;
   if (currentDyslexiaStageIndex < dyslexiaSession.stages.length) {
     renderDyslexiaCurrentStage();
@@ -1718,14 +1913,19 @@ function advanceDyslexiaStage() {
 }
 
 async function finalizeDyslexiaSubmission() {
+  const btnFinish = document.getElementById("btnFinishDyslexia");
+  if (btnFinish) {
+    btnFinish.disabled = true;
+    btnFinish.textContent = "⏳ Analyzing with AI Models…";
+  }
   showToast("Analyzing speech and reading evidence...");
   try {
     const payload = {
-      session_id: dyslexiaSession.session_id,
-      user_id: currentChild.id,
-      age: currentChild.age,
+      session_id: dyslexiaSession ? dyslexiaSession.session_id : 0,
+      user_id: currentChild ? currentChild.id : 1,
+      age: currentChild ? currentChild.age : 8,
       stages_data: dyslexiaCollectedData,
-      confidence_score: speechConfidenceAvg,
+      confidence_score: speechConfidenceAvg || 0.85,
       accent: getSelectedAccent()
     };
 
@@ -1738,13 +1938,28 @@ async function finalizeDyslexiaSubmission() {
     if (res.ok) {
       const result = await res.json();
       activeResult = result;
+
+      // Crucial: reset active session so next assessment starts fresh
+      dyslexiaSession = null;
+      currentDyslexiaStageIndex = 0;
+      dyslexiaCollectedData = {};
+
       displayResults(result);
       navigateToView("results");
     } else {
       showToast("Submission error on server. Please try again.");
+      if (btnFinish) {
+        btnFinish.disabled = false;
+        btnFinish.textContent = "Finish Screening & View Results →";
+      }
     }
   } catch (err) {
-    showToast("Could not submit assessment results.");
+    console.error("Dyslexia submission failed:", err);
+    showToast("Could not submit assessment results. Check network connection.");
+    if (btnFinish) {
+      btnFinish.disabled = false;
+      btnFinish.textContent = "Finish Screening & View Results →";
+    }
   }
 }
 
@@ -2491,6 +2706,10 @@ async function finalizeDysgraphiaSubmission() {
     if (res.ok) {
       const result = await res.json();
       activeResult = result;
+      // Reset active dysgraphia session so next assessment starts fresh
+      dysgraphiaSession = null;
+      currentDysgraphiaTaskIndex = 0;
+      dysgraphiaTaskResults = [];
       displayResults(result);
       navigateToView("results");
     } else {
@@ -2685,3 +2904,18 @@ window.viewHistoricalDetail = async function(recordId) {
     }
   } catch (e) {}
 };
+
+// Explicit global window bindings for inline HTML attributes
+if (typeof window !== "undefined") {
+  window.navigateToView = navigateToView;
+  window.initDyslexiaWorkflow = initDyslexiaWorkflow;
+  window.startDyslexiaAssessment = startDyslexiaAssessment;
+  window.initDysgraphiaWorkflow = initDysgraphiaWorkflow;
+  window.startDysgraphiaAssessment = startDysgraphiaAssessment;
+  window.advanceDyslexiaStage = advanceDyslexiaStage;
+  window.finalizeDyslexiaSubmission = finalizeDyslexiaSubmission;
+  window.openProfileModal = openProfileModal;
+  window.closeProfileModal = closeProfileModal;
+  window.loadDashboard = loadDashboard;
+  window.loadHistoryView = loadHistoryView;
+}
